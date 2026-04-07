@@ -7,3 +7,8 @@ packages/
 .vscode/
 .idea/
 *.DS_Store
+
+# FSharp.Formatting
+output/
+.fsdocs/
+tmp/

@@ -1,5 +1,14 @@
 namespace SkiaViewer
 
+/// <namespacedoc>
+/// <summary>
+/// The SkiaViewer namespace provides a hardware-accelerated 2D rendering viewer
+/// that combines Silk.NET windowing/OpenGL with SkiaSharp raster drawing.
+/// The viewer runs on a background thread with frame-level exception recovery.
+/// </summary>
+/// </namespacedoc>
+module internal NamespaceDoc = ()
+
 open System
 open System.Threading
 open Silk.NET.Maths
