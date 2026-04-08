@@ -290,23 +290,41 @@ void main() {
                                     config.OnRender canvas fbSize
                                     canvas.Flush()
 
-                                    // For Vulkan backend, flush the GRContext before readback
+                                    // Upload pixels to GL texture and draw fullscreen quad.
+                                    // GPU-backed (Vulkan) surfaces require Snapshot + ReadPixels
+                                    // for GPU→CPU transfer; raster surfaces use PeekPixels.
                                     match activeBackend with
                                     | VulkanBackend.VulkanActive state ->
-                                        VulkanBackend.flushContext state
-                                    | VulkanBackend.GlRasterActive -> ()
-
-                                    // Upload raster pixels to GL texture and draw fullscreen quad
-                                    let pixmap = snapSurface.PeekPixels()
-                                    if not (obj.ReferenceEquals(pixmap, null)) then
-                                        let pixels = pixmap.GetPixels()
-                                        gl.BindTexture(GLEnum.Texture2D, texture)
-                                        gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
-                                        gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
-                                        gl.Clear(uint32 GLEnum.ColorBufferBit)
-                                        gl.UseProgram(shaderProgram)
-                                        gl.BindVertexArray(vao)
-                                        gl.DrawArrays(GLEnum.Triangles, 0, 6u)
+                                        // Flush and synchronously submit all GPU work
+                                        state.GRContext.Flush()
+                                        state.GRContext.Submit(true)
+                                        // Snapshot creates a texture-backed image, then
+                                        // ReadPixels forces the GPU→CPU readback
+                                        use img = snapSurface.Snapshot()
+                                        if not (isNull img) then
+                                            let info = SKImageInfo(snapWidth, snapHeight, SKColorType.Rgba8888, SKAlphaType.Premul)
+                                            use readbackBitmap = new SKBitmap(info)
+                                            let ok = img.ReadPixels(info, readbackBitmap.GetPixels(), info.RowBytes, 0, 0)
+                                            if ok then
+                                                let pixels = readbackBitmap.GetPixels()
+                                                gl.BindTexture(GLEnum.Texture2D, texture)
+                                                gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
+                                                gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
+                                                gl.Clear(uint32 GLEnum.ColorBufferBit)
+                                                gl.UseProgram(shaderProgram)
+                                                gl.BindVertexArray(vao)
+                                                gl.DrawArrays(GLEnum.Triangles, 0, 6u)
+                                    | VulkanBackend.GlRasterActive ->
+                                        let pixmap = snapSurface.PeekPixels()
+                                        if not (obj.ReferenceEquals(pixmap, null)) then
+                                            let pixels = pixmap.GetPixels()
+                                            gl.BindTexture(GLEnum.Texture2D, texture)
+                                            gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
+                                            gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
+                                            gl.Clear(uint32 GLEnum.ColorBufferBit)
+                                            gl.UseProgram(shaderProgram)
+                                            gl.BindVertexArray(vao)
+                                            gl.DrawArrays(GLEnum.Triangles, 0, 6u)
                             with
                             | :? ObjectDisposedException as ex ->
                                 eprintfn "[Viewer] Render warning (ObjectDisposed): %s" ex.Message
