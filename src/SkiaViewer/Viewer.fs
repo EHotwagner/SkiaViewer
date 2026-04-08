@@ -14,6 +14,7 @@ module internal NamespaceDoc = ()
 #nowarn "9"
 
 open System
+open System.IO
 open System.Threading
 open Silk.NET.Maths
 open Silk.NET.Windowing
@@ -26,6 +27,11 @@ type Backend =
     | Vulkan
     | GL
     | Raster
+
+[<RequireQualifiedAccess>]
+type ImageFormat =
+    | Png
+    | Jpeg
 
 type ViewerConfig =
     { Title: string
@@ -40,11 +46,95 @@ type ViewerConfig =
       OnMouseDrag: float32 -> float32 -> unit
       PreferredBackend: Backend option }
 
-module Viewer =
+[<Sealed>]
+type ViewerHandle
+    internal (stop: unit -> unit,
+              surfaceLock: obj,
+              getSurface: unit -> SkiaSharp.SKSurface,
+              getWidth: unit -> int,
+              getHeight: unit -> int,
+              getBackend: unit -> VulkanBackend.ActiveBackend,
+              isDisposed: unit -> bool) =
 
-    type private ViewerHandle(stop: unit -> unit) =
-        interface IDisposable with
-            member _.Dispose() = stop ()
+    let mutable disposed = false
+
+    member _.Screenshot(folder: string, ?format: ImageFormat) : Result<string, string> =
+        if disposed then
+            eprintfn "[Viewer] Screenshot failed: Viewer has been disposed"
+            Error "Viewer has been disposed"
+        else
+
+        try
+            // Snapshot the surface under lock
+            let image =
+                lock surfaceLock (fun () ->
+                    let surf = getSurface ()
+                    if obj.ReferenceEquals(surf, null) then
+                        None
+                    elif getWidth () <= 0 || getHeight () <= 0 then
+                        None
+                    else
+                        // For Vulkan, flush GPU work before snapshot
+                        match getBackend () with
+                        | VulkanBackend.VulkanActive state ->
+                            state.GRContext.Flush()
+                            state.GRContext.Submit(true)
+                        | VulkanBackend.GlRasterActive -> ()
+
+                        let snapshot = surf.Snapshot()
+                        if isNull snapshot then None
+                        else
+                            // For Vulkan-backed images, read pixels to CPU
+                            match getBackend () with
+                            | VulkanBackend.VulkanActive _ ->
+                                let info = SKImageInfo(getWidth (), getHeight (), SKColorType.Rgba8888, SKAlphaType.Premul)
+                                use readbackBitmap = new SKBitmap(info)
+                                let ok = snapshot.ReadPixels(info, readbackBitmap.GetPixels(), info.RowBytes, 0, 0)
+                                snapshot.Dispose()
+                                if ok then
+                                    Some (SKImage.FromBitmap(readbackBitmap))
+                                else
+                                    None
+                            | VulkanBackend.GlRasterActive ->
+                                Some snapshot)
+
+            match image with
+            | None ->
+                eprintfn "[Viewer] Screenshot failed: No active surface or framebuffer is zero-size"
+                Error "No active surface or framebuffer is zero-size"
+            | Some img ->
+                try
+                    let fmt = defaultArg format ImageFormat.Png
+                    let (skFormat, ext, quality) =
+                        match fmt with
+                        | ImageFormat.Png -> (SKEncodedImageFormat.Png, ".png", 100)
+                        | ImageFormat.Jpeg -> (SKEncodedImageFormat.Jpeg, ".jpg", 80)
+
+                    Directory.CreateDirectory(folder) |> ignore
+
+                    let now = DateTime.UtcNow
+                    let filename = sprintf "screenshot-%s%s" (now.ToString("yyyyMMdd-HHmmss-fff")) ext
+                    let fullPath = Path.Combine(folder, filename)
+
+                    use data = img.Encode(skFormat, quality)
+                    use fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write)
+                    data.SaveTo(fs)
+
+                    eprintfn "[Viewer] Screenshot saved: %s" fullPath
+                    Ok fullPath
+                finally
+                    img.Dispose()
+        with ex ->
+            let msg = sprintf "%s: %s" (ex.GetType().Name) ex.Message
+            eprintfn "[Viewer] Screenshot failed: %s" msg
+            Error msg
+
+    interface IDisposable with
+        member this.Dispose() =
+            disposed <- true
+            stop ()
+
+module Viewer =
 
     let private vertexShaderSrc = """#version 330 core
 layout(location = 0) in vec2 aPos;
@@ -65,11 +155,17 @@ void main() {
 
     let private platformRegistered = lazy (Silk.NET.Windowing.Glfw.GlfwWindowing.RegisterPlatform())
 
-    let run (config: ViewerConfig) : IDisposable =
+    let run (config: ViewerConfig) : ViewerHandle =
         let mutable windowRef: IWindow option = None
         let surfaceLock = obj ()
         let mutable shutdownRequested = false
         let windowCompleted = new ManualResetEventSlim(false)
+
+        // Shared mutable state — accessed from render thread and ViewerHandle
+        let mutable surface: SKSurface = Unchecked.defaultof<_>
+        let mutable surfaceWidth = 0
+        let mutable surfaceHeight = 0
+        let mutable activeBackend = VulkanBackend.GlRasterActive
 
         let thread =
             Thread(
@@ -88,16 +184,10 @@ void main() {
 
                     let mutable gl: GL = Unchecked.defaultof<_>
                     let mutable glReady = false
-                    let mutable surface: SKSurface = Unchecked.defaultof<_>
                     let mutable texture: uint32 = 0u
                     let mutable vao: uint32 = 0u
                     let mutable vbo: uint32 = 0u
                     let mutable shaderProgram: uint32 = 0u
-                    let mutable surfaceWidth = 0
-                    let mutable surfaceHeight = 0
-
-                    // Backend state
-                    let mutable activeBackend = VulkanBackend.GlRasterActive
 
                     let recreateSurface () =
                         if not glReady then ()
@@ -385,4 +475,11 @@ void main() {
                 eprintfn "[Viewer] Warning: window thread did not complete within 5s timeout"
             windowRef <- None
 
-        new ViewerHandle(stop) :> IDisposable
+        new ViewerHandle(
+            stop,
+            surfaceLock,
+            (fun () -> surface),
+            (fun () -> surfaceWidth),
+            (fun () -> surfaceHeight),
+            (fun () -> activeBackend),
+            (fun () -> shutdownRequested))

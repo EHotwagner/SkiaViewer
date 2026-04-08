@@ -1,0 +1,33 @@
+SkiaViewer Public API Surface Area Baseline
+============================================
+
+Types:
+  Backend (RequireQualifiedAccess DU)
+    | Vulkan
+    | GL
+    | Raster
+
+  ImageFormat (RequireQualifiedAccess DU)
+    | Png
+    | Jpeg
+
+  ViewerConfig (Record)
+    Title: string
+    Width: int
+    Height: int
+    TargetFps: int
+    ClearColor: SKColor
+    OnRender: SKCanvas -> Vector2D<int> -> unit
+    OnResize: int -> int -> unit
+    OnKeyDown: Key -> unit
+    OnMouseScroll: float32 -> float32 -> float32 -> unit
+    OnMouseDrag: float32 -> float32 -> unit
+    PreferredBackend: Backend option
+
+  ViewerHandle (Sealed Class)
+    implements IDisposable
+    member Screenshot: folder: string * ?format: ImageFormat -> Result<string, string>
+
+Modules:
+  Viewer
+    val run: config: ViewerConfig -> ViewerHandle

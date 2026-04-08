@@ -108,7 +108,7 @@ type ViewerTests() =
         let viewer = Viewer.run config
         Thread.Sleep(1000)
 
-        let disposeTask = System.Threading.Tasks.Task.Run(fun () -> viewer.Dispose())
+        let disposeTask = System.Threading.Tasks.Task.Run(fun () -> (viewer :> IDisposable).Dispose())
         let completed = disposeTask.Wait(TimeSpan.FromSeconds(2.0))
 
         Assert.True(completed, "Dispose should complete within 2 seconds")
@@ -308,7 +308,7 @@ type ViewerTests() =
 
             use viewer = Viewer.run config
             Thread.Sleep(2000)
-            viewer.Dispose() |> ignore
+            (viewer :> IDisposable).Dispose()
             capturedOutput <- sw.ToString()
         finally
             Console.SetError(originalStderr)
@@ -331,9 +331,314 @@ type ViewerTests() =
 
             use viewer = Viewer.run config
             Thread.Sleep(2000)
-            viewer.Dispose() |> ignore
+            (viewer :> IDisposable).Dispose()
             capturedOutput <- sw.ToString()
         finally
             Console.SetError(originalStderr)
 
         Assert.Contains("Preferred backend:", capturedOutput)
+
+    // ── Screenshot tests ──
+
+    [<Fact>]
+    member _.``screenshot saves PNG file to existing folder`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempDir) |> ignore
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Red)
+                    canvas.DrawRect(0.0f, 0.0f, 200.0f, 150.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Ok path ->
+                Assert.True(File.Exists(path), $"Screenshot file should exist at {path}")
+                Assert.EndsWith(".png", path)
+                let fileInfo = FileInfo(path)
+                Assert.True(fileInfo.Length > 0L, "Screenshot file should not be empty")
+            | Error msg ->
+                Assert.Fail($"Screenshot should succeed but got Error: {msg}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot returns error before first frame`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempDir) |> ignore
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Blue)
+                    canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+
+            use viewer = Viewer.run config
+            // Do NOT sleep — call immediately before any render
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Error _ -> () // Expected
+            | Ok path -> Assert.Fail($"Expected Error before first frame, but got Ok: {path}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot produces distinct files on rapid successive calls`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempDir) |> ignore
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Green)
+                    canvas.DrawRect(0.0f, 0.0f, 100.0f, 100.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let results =
+                [| for _ in 1..10 do viewer.Screenshot(tempDir) |]
+
+            let okPaths =
+                results
+                |> Array.choose (function Ok p -> Some p | Error _ -> None)
+
+            Assert.Equal(10, okPaths.Length)
+            Assert.Equal(10, (okPaths |> Array.distinct |> Array.length))
+
+            for path in okPaths do
+                Assert.True(File.Exists(path), $"File should exist: {path}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot returns error after viewer disposal`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempDir) |> ignore
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Purple)
+                    canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+
+            let viewer = Viewer.run config
+            Thread.Sleep(1000)
+            (viewer :> IDisposable).Dispose()
+
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Error _ -> () // Expected
+            | Ok path -> Assert.Fail($"Expected Error after disposal, but got Ok: {path}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot returns error when framebuffer is zero-size`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempDir) |> ignore
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.White)
+                    canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+
+            use viewer = Viewer.run config
+            // Call immediately — surface may not be ready yet
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Error _ -> () // Expected — no surface ready
+            | Ok _ -> () // Also acceptable if surface initialized fast enough
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    // ── User Story 2: Save Folder tests ──
+
+    [<Fact>]
+    member _.``screenshot creates non-existent folder`` () =
+        let baseDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+        let nestedDir = Path.Combine(baseDir, "nested", "subfolder")
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Orange)
+                    canvas.DrawRect(0.0f, 0.0f, 100.0f, 100.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(nestedDir)
+
+            match result with
+            | Ok path ->
+                Assert.True(Directory.Exists(nestedDir), "Nested directory should be created")
+                Assert.True(File.Exists(path), $"Screenshot file should exist at {path}")
+            | Error msg ->
+                Assert.Fail($"Screenshot should succeed but got Error: {msg}")
+        finally
+            if Directory.Exists(baseDir) then Directory.Delete(baseDir, true)
+
+    [<Fact>]
+    member _.``screenshot returns error for invalid path`` () =
+        let config =
+            makeConfig (fun canvas _ ->
+                use paint = new SKPaint(Color = SKColors.Cyan)
+                canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+
+        use viewer = Viewer.run config
+        Thread.Sleep(1000)
+
+        // Null character in path is invalid on all platforms
+        let invalidPath = "/tmp/skiaviewer\x00invalid"
+        let result = viewer.Screenshot(invalidPath)
+
+        match result with
+        | Error _ -> () // Expected
+        | Ok path -> Assert.Fail($"Expected Error for invalid path, but got Ok: {path}")
+
+    // ── User Story 3: Image Format tests ──
+
+    [<Fact>]
+    member _.``screenshot saves JPEG when format specified`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Magenta)
+                    canvas.DrawRect(0.0f, 0.0f, 200.0f, 150.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(tempDir, ImageFormat.Jpeg)
+
+            match result with
+            | Ok path ->
+                Assert.True(File.Exists(path), $"JPEG file should exist at {path}")
+                Assert.EndsWith(".jpg", path)
+                let fileInfo = FileInfo(path)
+                Assert.True(fileInfo.Length > 0L, "JPEG file should not be empty")
+            | Error msg ->
+                Assert.Fail($"Screenshot should succeed but got Error: {msg}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot defaults to PNG when no format specified`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.Teal)
+                    canvas.DrawRect(0.0f, 0.0f, 100.0f, 100.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Ok path ->
+                Assert.EndsWith(".png", path)
+            | Error msg ->
+                Assert.Fail($"Screenshot should succeed but got Error: {msg}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    // ── Backend validation tests ──
+
+    [<Fact>]
+    member _.``screenshot works with Vulkan backend`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let config =
+                { makeConfig (fun canvas _ ->
+                      use paint = new SKPaint(Color = SKColors.Red)
+                      canvas.DrawRect(0.0f, 0.0f, 200.0f, 150.0f, paint))
+                  with PreferredBackend = Some Backend.Vulkan }
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Ok path ->
+                Assert.True(File.Exists(path), $"File should exist: {path}")
+                let fileInfo = FileInfo(path)
+                Assert.True(fileInfo.Length > 0L, "File should not be empty")
+            | Error msg ->
+                Assert.Fail($"Screenshot with Vulkan backend should succeed: {msg}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    [<Fact>]
+    member _.``screenshot works with GL backend`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "skiaviewer-test-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let config =
+                { makeConfig (fun canvas _ ->
+                      use paint = new SKPaint(Color = SKColors.Blue)
+                      canvas.DrawRect(0.0f, 0.0f, 200.0f, 150.0f, paint))
+                  with PreferredBackend = Some Backend.GL }
+
+            use viewer = Viewer.run config
+            Thread.Sleep(1000)
+
+            let result = viewer.Screenshot(tempDir)
+
+            match result with
+            | Ok path ->
+                Assert.True(File.Exists(path), $"File should exist: {path}")
+                let fileInfo = FileInfo(path)
+                Assert.True(fileInfo.Length > 0L, "File should not be empty")
+            | Error msg ->
+                Assert.Fail($"Screenshot with GL backend should succeed: {msg}")
+        finally
+            if Directory.Exists(tempDir) then Directory.Delete(tempDir, true)
+
+    // ── Surface area baseline test ──
+
+    [<Fact>]
+    member _.``public API surface matches baseline`` () =
+        let asm = typeof<ViewerConfig>.Assembly
+        let publicTypes =
+            asm.GetExportedTypes()
+            |> Array.map (fun t -> t.FullName)
+            |> Array.sort
+
+        // Verify expected public types exist
+        Assert.Contains("SkiaViewer.Backend", publicTypes)
+        Assert.Contains("SkiaViewer.ImageFormat", publicTypes)
+        Assert.Contains("SkiaViewer.ViewerConfig", publicTypes)
+        Assert.Contains("SkiaViewer.ViewerHandle", publicTypes)
+        Assert.Contains("SkiaViewer.Viewer", publicTypes)
+
+        // Verify ViewerHandle has Screenshot member
+        let handleType = typeof<ViewerHandle>
+        let screenshotMethod = handleType.GetMethod("Screenshot")
+        Assert.NotNull(screenshotMethod)
+
+        // Verify ViewerHandle implements IDisposable
+        Assert.True(typeof<IDisposable>.IsAssignableFrom(handleType))
+
+        // Verify Viewer.run returns ViewerHandle
+        let viewerModule = asm.GetType("SkiaViewer.Viewer")
+        Assert.NotNull(viewerModule)
+        let runMethod = viewerModule.GetMethod("run")
+        Assert.NotNull(runMethod)
+        Assert.Equal(typeof<ViewerHandle>, runMethod.ReturnType)

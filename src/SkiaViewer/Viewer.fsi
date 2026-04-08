@@ -17,6 +17,16 @@ type Backend =
     | Raster
 
 /// <summary>
+/// Image format for screenshot output.
+/// </summary>
+[<RequireQualifiedAccess>]
+type ImageFormat =
+    /// <summary>Lossless PNG encoding (default).</summary>
+    | Png
+    /// <summary>Lossy JPEG encoding at quality 80.</summary>
+    | Jpeg
+
+/// <summary>
 /// Configuration record for the SkiaViewer visualization window.
 /// </summary>
 /// <remarks>
@@ -79,6 +89,37 @@ type ViewerConfig =
       PreferredBackend: Backend option }
 
 /// <summary>
+/// Handle returned by <see cref="M:SkiaViewer.Viewer.run"/> that provides screenshot
+/// functionality and lifecycle management for the viewer window.
+/// </summary>
+/// <remarks>
+/// <para>Implements <see cref="T:System.IDisposable"/> for graceful shutdown. Disposing
+/// requests the window thread to close and waits up to 5 seconds for completion.</para>
+/// <para>The <c>Screenshot</c> method is thread-safe and can be called from any thread.
+/// It blocks the calling thread until the image file is written to disk.</para>
+/// </remarks>
+[<Sealed>]
+type ViewerHandle =
+    interface IDisposable
+    /// <summary>
+    /// Captures the current rendered frame and saves it as an image file to the specified folder.
+    /// </summary>
+    /// <param name="folder">Destination folder path. Created automatically if it does not exist.</param>
+    /// <param name="format">Image format. Defaults to <see cref="F:SkiaViewer.ImageFormat.Png"/>.</param>
+    /// <returns>
+    /// <c>Ok(filePath)</c> with the full path of the saved file on success,
+    /// or <c>Error(message)</c> with a descriptive error message on failure.
+    /// </returns>
+    /// <remarks>
+    /// <para>This method blocks the calling thread until the file is fully written to disk.
+    /// The caller can assume the file exists immediately after the function returns <c>Ok</c>.</para>
+    /// <para>The rendering loop is not interrupted during capture. The method acquires a brief
+    /// lock on the render surface to take a snapshot, then encodes and writes to disk outside
+    /// the lock.</para>
+    /// </remarks>
+    member Screenshot: folder: string * ?format: ImageFormat -> Result<string, string>
+
+/// <summary>
 /// Manages a Silk.NET window on a background thread with SkiaSharp rendering.
 /// Uses Vulkan GPU-backed rendering as the primary backend with automatic
 /// fallback to GL raster when Vulkan is unavailable.
@@ -102,11 +143,12 @@ module Viewer =
     /// </summary>
     /// <param name="config">The <see cref="T:SkiaViewer.ViewerConfig"/> describing window properties and callbacks.</param>
     /// <returns>
-    /// An <see cref="T:System.IDisposable"/> handle. Disposing it requests a graceful shutdown
-    /// of the window thread, waiting up to 5 seconds for completion.
+    /// A <see cref="T:SkiaViewer.ViewerHandle"/> that provides screenshot functionality
+    /// and lifecycle management. Disposing it requests a graceful shutdown of the window
+    /// thread, waiting up to 5 seconds for completion.
     /// </returns>
     /// <remarks>
-    /// <para>The returned disposable triggers a cross-thread shutdown: it sets a flag that the
+    /// <para>The returned handle triggers a cross-thread shutdown on dispose: it sets a flag that the
     /// window's update loop checks, then waits for the window thread to exit.</para>
     /// <para>GLFW (the underlying platform) requires window creation and management on a single
     /// thread. This function handles that by running the entire window lifecycle on its own
@@ -119,8 +161,12 @@ module Viewer =
     /// let config = { ... }
     /// use viewer = Viewer.run config
     /// // Window is now running on a background thread.
+    /// // Take a screenshot:
+    /// match viewer.Screenshot("/tmp/screenshots") with
+    /// | Ok path -> printfn "Saved to %s" path
+    /// | Error msg -> eprintfn "Failed: %s" msg
     /// // Dispose to shut down:
     /// // viewer.Dispose()
     /// </code>
     /// </example>
-    val run: config: ViewerConfig -> IDisposable
+    val run: config: ViewerConfig -> ViewerHandle
