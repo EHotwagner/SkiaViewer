@@ -3,11 +3,15 @@ namespace SkiaViewer
 /// <namespacedoc>
 /// <summary>
 /// The SkiaViewer namespace provides a hardware-accelerated 2D rendering viewer
-/// that combines Silk.NET windowing/OpenGL with SkiaSharp raster drawing.
+/// that combines Silk.NET windowing with SkiaSharp drawing. The primary rendering
+/// path uses a Vulkan GPU-backed GRContext for accelerated drawing with MSAA support,
+/// with automatic fallback to CPU raster rendering on systems without Vulkan.
 /// The viewer runs on a background thread with frame-level exception recovery.
 /// </summary>
 /// </namespacedoc>
 module internal NamespaceDoc = ()
+
+#nowarn "9"
 
 open System
 open System.Threading
@@ -16,6 +20,12 @@ open Silk.NET.Windowing
 open Silk.NET.OpenGL
 open Silk.NET.Input
 open SkiaSharp
+
+[<RequireQualifiedAccess>]
+type Backend =
+    | Vulkan
+    | GL
+    | Raster
 
 type ViewerConfig =
     { Title: string
@@ -27,7 +37,8 @@ type ViewerConfig =
       OnResize: int -> int -> unit
       OnKeyDown: Key -> unit
       OnMouseScroll: float32 -> float32 -> float32 -> unit
-      OnMouseDrag: float32 -> float32 -> unit }
+      OnMouseDrag: float32 -> float32 -> unit
+      PreferredBackend: Backend option }
 
 module Viewer =
 
@@ -85,15 +96,23 @@ void main() {
                     let mutable surfaceWidth = 0
                     let mutable surfaceHeight = 0
 
+                    // Backend state
+                    let mutable activeBackend = VulkanBackend.GlRasterActive
+
                     let recreateSurface () =
-                        if not glReady then () // Guard pre-init resize
+                        if not glReady then ()
                         else
 
                         let fbSize = win.FramebufferSize
 
                         if fbSize.X > 0 && fbSize.Y > 0 then
                             let info = new SKImageInfo(fbSize.X, fbSize.Y, SKColorType.Rgba8888, SKAlphaType.Premul)
-                            let newSurface = SKSurface.Create(info)
+                            let newSurface =
+                                match activeBackend with
+                                | VulkanBackend.VulkanActive state ->
+                                    VulkanBackend.createGpuSurface state fbSize.X fbSize.Y
+                                | VulkanBackend.GlRasterActive ->
+                                    SKSurface.Create(info)
                             let oldSurface =
                                 lock surfaceLock (fun () ->
                                     let old = surface
@@ -105,7 +124,6 @@ void main() {
                                 oldSurface.Dispose()
                             eprintfn "[Viewer] Surface created: %dx%d" fbSize.X fbSize.Y
                         else
-                            // Zero-size framebuffer (minimized): set surface to null
                             let oldSurface =
                                 lock surfaceLock (fun () ->
                                     let old = surface
@@ -169,6 +187,40 @@ void main() {
                     let mutable inputCtx: Silk.NET.Input.IInputContext option = None
 
                     win.add_Load (fun _ ->
+                        // Log preferred backend if set
+                        match config.PreferredBackend with
+                        | Some b -> eprintfn "[Viewer] Preferred backend: %A" b
+                        | None -> ()
+
+                        // Attempt Vulkan init (unless GL explicitly preferred)
+                        let tryVulkan =
+                            match config.PreferredBackend with
+                            | Some Backend.GL | Some Backend.Raster -> false
+                            | _ -> true
+
+                        let vulkanState =
+                            if tryVulkan then
+                                try VulkanBackend.tryInit ()
+                                with ex ->
+                                    eprintfn "[Viewer] Vulkan initialization failed: %s" ex.Message
+                                    None
+                            else
+                                None
+
+                        match vulkanState with
+                        | Some state ->
+                            activeBackend <- VulkanBackend.VulkanActive state
+                            eprintfn "[Viewer] Backend selected: Vulkan (%s)" state.DeviceName
+                        | None ->
+                            if tryVulkan then
+                                match config.PreferredBackend with
+                                | Some Backend.Vulkan ->
+                                    eprintfn "[Viewer] Preferred backend Vulkan unavailable, falling back"
+                                | _ -> ()
+                            activeBackend <- VulkanBackend.GlRasterActive
+                            eprintfn "[Viewer] Backend selected: GL raster (fallback)"
+
+                        // GL setup is always needed (for texture display)
                         gl <- GL.GetApi(win)
                         gl.ClearColor(
                             float32 config.ClearColor.Red / 255.0f,
@@ -238,6 +290,12 @@ void main() {
                                     config.OnRender canvas fbSize
                                     canvas.Flush()
 
+                                    // For Vulkan backend, flush the GRContext before readback
+                                    match activeBackend with
+                                    | VulkanBackend.VulkanActive state ->
+                                        VulkanBackend.flushContext state
+                                    | VulkanBackend.GlRasterActive -> ()
+
                                     // Upload raster pixels to GL texture and draw fullscreen quad
                                     let pixmap = snapSurface.PeekPixels()
                                     if not (obj.ReferenceEquals(pixmap, null)) then
@@ -274,6 +332,13 @@ void main() {
                         if not (obj.ReferenceEquals(oldSurface, null)) then
                             oldSurface.Dispose()
 
+                        // Clean up backend-specific resources
+                        match activeBackend with
+                        | VulkanBackend.VulkanActive state ->
+                            VulkanBackend.cleanup state
+                        | VulkanBackend.GlRasterActive -> ()
+
+                        // Clean up GL resources
                         if shaderProgram <> 0u then
                             gl.DeleteProgram(shaderProgram)
                         if vao <> 0u then

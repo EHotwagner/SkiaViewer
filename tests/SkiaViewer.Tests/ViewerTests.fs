@@ -1,6 +1,7 @@
 namespace SkiaViewer.Tests
 
 open System
+open System.IO
 open System.Threading
 open Xunit
 open SkiaSharp
@@ -24,7 +25,8 @@ type ViewerTests() =
           OnResize = fun _ _ -> ()
           OnKeyDown = fun _ -> ()
           OnMouseScroll = fun _ _ _ -> ()
-          OnMouseDrag = fun _ _ -> () }
+          OnMouseDrag = fun _ _ -> ()
+          PreferredBackend = None }
 
     [<Fact>]
     member _.``continuous rendering counts frames without exceptions`` () =
@@ -165,7 +167,8 @@ type ViewerTests() =
               OnResize = fun _ _ -> ()
               OnKeyDown = fun _ -> ()
               OnMouseScroll = fun _ _ _ -> ()
-              OnMouseDrag = fun _ _ -> () }
+              OnMouseDrag = fun _ _ -> ()
+              PreferredBackend = None }
 
         use viewer = Viewer.run config
         Thread.Sleep(2000)
@@ -209,7 +212,8 @@ type ViewerTests() =
               OnResize = fun _ _ -> ()
               OnKeyDown = fun _ -> ()
               OnMouseScroll = fun _ _ _ -> ()
-              OnMouseDrag = fun _ _ -> () }
+              OnMouseDrag = fun _ _ -> ()
+              PreferredBackend = None }
 
         use viewer = Viewer.run config
         Thread.Sleep(1500)
@@ -231,3 +235,105 @@ type ViewerTests() =
 
         Assert.True(frameCount > 0, "Should have rendered frames during concurrent access")
         Assert.Equal(0, exceptionCount)
+
+    // ── New tests for Vulkan backend ──
+
+    [<Fact>]
+    member _.``vulkan backend renders frames without exceptions`` () =
+        let mutable frameCount = 0
+        let mutable exceptionCount = 0
+
+        let config =
+            { makeConfig (fun canvas fbSize ->
+                  try
+                      Interlocked.Increment(&frameCount) |> ignore
+                      use paint = new SKPaint(Color = SKColors.CornflowerBlue, IsAntialias = true)
+                      canvas.DrawRect(10.0f, 10.0f, 80.0f, 60.0f, paint)
+                      use textPaint = new SKPaint(Color = SKColors.White, TextSize = 20.0f, IsAntialias = true)
+                      canvas.DrawText("Vulkan " + string frameCount, 10.0f, 200.0f, textPaint)
+                  with _ ->
+                      Interlocked.Increment(&exceptionCount) |> ignore)
+              with PreferredBackend = Some Backend.Vulkan }
+
+        // If Vulkan is not available, the viewer falls back to GL — still valid
+        use viewer = Viewer.run config
+        Thread.Sleep(3000)
+
+        Assert.True(frameCount > 60, $"Expected > 60 frames but got {frameCount}")
+        Assert.Equal(0, exceptionCount)
+
+    [<Fact>]
+    member _.``GL fallback when preferred backend is GL`` () =
+        let mutable frameCount = 0
+
+        let config =
+            { makeConfig (fun canvas _ ->
+                  Interlocked.Increment(&frameCount) |> ignore
+                  use paint = new SKPaint(Color = SKColors.Orange)
+                  canvas.DrawRect(0.0f, 0.0f, 100.0f, 100.0f, paint))
+              with PreferredBackend = Some Backend.GL }
+
+        use viewer = Viewer.run config
+        Thread.Sleep(2000)
+
+        Assert.True(frameCount > 0, $"Expected frames rendered via GL fallback but got {frameCount}")
+
+    [<Fact>]
+    member _.``auto-detect with PreferredBackend None renders frames`` () =
+        let mutable frameCount = 0
+
+        let config =
+            makeConfig (fun canvas _ ->
+                Interlocked.Increment(&frameCount) |> ignore
+                use paint = new SKPaint(Color = SKColors.Green)
+                canvas.DrawRect(0.0f, 0.0f, 100.0f, 100.0f, paint))
+
+        use viewer = Viewer.run config
+        Thread.Sleep(2000)
+
+        Assert.True(frameCount > 0, $"Expected frames with auto-detect but got {frameCount}")
+
+    [<Fact>]
+    member _.``backend selection message appears on stderr`` () =
+        let mutable capturedOutput = ""
+        let originalStderr = Console.Error
+        use sw = new StringWriter()
+        Console.SetError(sw)
+
+        try
+            let config =
+                makeConfig (fun canvas _ ->
+                    use paint = new SKPaint(Color = SKColors.White)
+                    canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+
+            use viewer = Viewer.run config
+            Thread.Sleep(2000)
+            viewer.Dispose() |> ignore
+            capturedOutput <- sw.ToString()
+        finally
+            Console.SetError(originalStderr)
+
+        Assert.Contains("Backend selected:", capturedOutput)
+
+    [<Fact>]
+    member _.``preferred backend logging appears on stderr`` () =
+        let mutable capturedOutput = ""
+        let originalStderr = Console.Error
+        use sw = new StringWriter()
+        Console.SetError(sw)
+
+        try
+            let config =
+                { makeConfig (fun canvas _ ->
+                      use paint = new SKPaint(Color = SKColors.White)
+                      canvas.DrawRect(0.0f, 0.0f, 50.0f, 50.0f, paint))
+                  with PreferredBackend = Some Backend.GL }
+
+            use viewer = Viewer.run config
+            Thread.Sleep(2000)
+            viewer.Dispose() |> ignore
+            capturedOutput <- sw.ToString()
+        finally
+            Console.SetError(originalStderr)
+
+        Assert.Contains("Preferred backend:", capturedOutput)
