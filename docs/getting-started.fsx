@@ -3,106 +3,127 @@
 title: Getting Started
 category: Overview
 categoryindex: 1
-index: 1
-description: Create your first SkiaViewer window and render a simple scene.
+index: 3
+description: Install SkiaViewer, configure a window, and render your first scene.
 ---
 *)
 
 (**
 # Getting Started with SkiaViewer
 
-SkiaViewer opens a hardware-accelerated window on a background thread and gives you a
-SkiaSharp canvas to draw on each frame. This guide walks through creating a minimal viewer.
+SkiaViewer provides a declarative, stream-based API for rendering 2D graphics
+in an OpenGL-backed window. You describe scenes as immutable data, push them
+through an `IObservable<Scene>`, and receive input events back through another
+observable stream.
 
 ## Installation
 
-Add the NuGet package to your project:
+Add SkiaViewer to your project via NuGet:
+*)
 
-```
-dotnet add package SkiaViewer
-```
+(*** do-not-eval ***)
+// dotnet add package SkiaViewer
 
-## Minimal Example
+(**
+## Window Configuration
 
-A SkiaViewer application needs a `ViewerConfig` record and a call to `Viewer.run`.
-The returned `IDisposable` keeps the window alive — disposing it shuts the window down.
+Configure the viewer window with a `ViewerConfig` record:
 *)
 
 (*** condition: prepare ***)
 #r "../src/SkiaViewer/bin/Release/net10.0/SkiaViewer.dll"
+#r "../src/SkiaViewer/bin/Release/net10.0/SkiaSharp.dll"
+#r "../src/SkiaViewer/bin/Release/net10.0/Silk.NET.Input.Common.dll"
 (*** condition: fsx ***)
 #r "nuget: SkiaViewer"
 
-(**
-Open the necessary namespaces:
-*)
-
 open SkiaViewer
 open SkiaSharp
-open Silk.NET.Maths
 
 (**
-## Defining a Configuration
-
-Every viewer is configured with a `ViewerConfig` record. At minimum, you need to supply
-a title, dimensions, frame rate, clear color, and callbacks. Callbacks you don't need can
-be set to no-ops:
+`ViewerConfig` contains only static window properties — no callbacks.
+Scene data and input events flow through streams.
 *)
 
 (*** do-not-eval ***)
-let config =
-    { Title = "Hello SkiaViewer"
+let config : ViewerConfig =
+    { Title = "My SkiaViewer App"
       Width = 800
       Height = 600
       TargetFps = 60
-      ClearColor = SKColors.CornflowerBlue
-      OnRender = fun canvas fbSize ->
-          use paint = new SKPaint(Color = SKColors.White, TextSize = 32.0f, IsAntialias = true)
-          canvas.DrawText("Hello, SkiaViewer!", 50.0f, 80.0f, paint)
-      OnResize = fun _ _ -> ()
-      OnKeyDown = fun _ -> ()
-      OnMouseScroll = fun _ _ _ -> ()
-      OnMouseDrag = fun _ _ -> () }
-
-(**
-## Running the Viewer
-
-Call `Viewer.run` to launch the window on a background thread. The function returns
-immediately with an `IDisposable` handle:
-*)
-
-(*** do-not-eval ***)
-let viewer = Viewer.run config
-// The window is now open and rendering.
-// In a console app, block the main thread:
-System.Threading.Thread.Sleep(5000)
-// Call viewer.Dispose() to gracefully shut down the window.
+      ClearColor = SKColors.Black
+      PreferredBackend = None }
 
 (**
 <div class="alert alert-info">
-<strong>Tip:</strong> The viewer runs on a background thread, so your main thread remains free.
-In a console application, you'll need to block (e.g., with <code>Thread.Sleep</code> or
-<code>Console.ReadLine()</code>) to keep the process alive.
+<strong>Tip:</strong> Set <code>PreferredBackend</code> to <code>None</code> for auto-detection
+(Vulkan with GL fallback), or force a specific backend with <code>Some Backend.Vulkan</code>
+or <code>Some Backend.GL</code>.
 </div>
 
-## ViewerConfig Fields
-
-| Field | Type | Purpose |
+| Field | Type | Description |
 |---|---|---|
 | `Title` | `string` | Window title bar text |
-| `Width` | `int` | Initial window width (logical pixels) |
-| `Height` | `int` | Initial window height (logical pixels) |
+| `Width` | `int` | Initial window width in logical pixels |
+| `Height` | `int` | Initial window height in logical pixels |
 | `TargetFps` | `int` | Target frames per second |
-| `ClearColor` | `SKColor` | Background color cleared each frame |
-| `OnRender` | `SKCanvas -> Vector2D<int> -> unit` | Draw your scene here |
-| `OnResize` | `int -> int -> unit` | Called on window resize |
-| `OnKeyDown` | `Key -> unit` | Called on key press |
-| `OnMouseScroll` | `float32 -> float32 -> float32 -> unit` | Scroll delta + mouse position |
-| `OnMouseDrag` | `float32 -> float32 -> unit` | Drag delta (dx, dy) |
+| `ClearColor` | `SKColor` | Default background clear color |
+| `PreferredBackend` | `Backend option` | `None` = auto-detect, `Some Vulkan`, `Some GL` |
+
+## Your First Window
+
+`Viewer.run` starts a window on a background thread. It takes a config and an
+`IObservable<Scene>`, and returns a `ViewerHandle` plus an
+`IObservable<InputEvent>`:
+*)
+
+(*** do-not-eval ***)
+open System
+
+let sceneEvent = Event<Scene>()
+
+let firstScene =
+    Scene.create SKColors.CornflowerBlue [
+        Scene.rect 50f 50f 200f 100f (Scene.fill SKColors.White)
+        Scene.circle 400f 300f 80f (Scene.fill SKColors.Coral)
+        Scene.text "Hello, SkiaViewer!" 50f 250f 32f (Scene.fill SKColors.Yellow)
+    ]
+
+let (handle, inputs) = Viewer.run config sceneEvent.Publish
+use _handle = handle
+
+// Push a scene to render
+sceneEvent.Trigger(firstScene)
+
+// Subscribe to input events
+use _sub = inputs.Subscribe(fun evt ->
+    match evt with
+    | InputEvent.KeyDown key -> printfn $"Key pressed: {key}"
+    | InputEvent.FrameTick elapsed -> () // called every frame
+    | _ -> ())
+
+// Keep the app running
+Console.ReadLine() |> ignore
+
+(**
+## Key Concepts
+
+- **Scenes are immutable data.** A `Scene` is a record with a background color and
+  a list of `Element` values. You build new scenes each frame rather than mutating state.
+
+- **Reactive streams.** You push scenes through `IObservable<Scene>` and receive
+  `InputEvent` values from the returned observable. This decouples your application
+  logic from the rendering thread.
+
+- **Background thread.** The window runs on a dedicated background thread. `Viewer.run`
+  returns immediately — the caller controls when to block or proceed.
+
+- **Lifecycle via `IDisposable`.** The `ViewerHandle` implements `IDisposable`.
+  Disposing it triggers a cross-thread shutdown with a 5-second timeout.
 
 ## Next Steps
 
-- [Drawing Primitives](drawing-primitives.html) — learn to draw shapes, text, and gradients
-- [Input Handling](input-handling.html) — respond to keyboard and mouse input
-- [Architecture Overview](architecture.html) — understand the rendering pipeline
+- [Declarative Scene DSL](declarative-scene-dsl.html) — composable scene construction
+- [Drawing Primitives & Paint](drawing-primitives.html) — all element types and paint styling
+- [Input Handling](input-handling.html) — keyboard, mouse, and window events
 *)

@@ -4,146 +4,232 @@ title: Architecture Overview
 category: Design
 categoryindex: 4
 index: 1
-description: Rendering pipeline, threading model, and component relationships.
+description: Components, threading model, rendering pipeline, and design decisions.
 ---
 *)
 
 (**
 # Architecture Overview
 
-SkiaViewer is a thin integration layer that bridges **SkiaSharp** raster rendering with
-**Silk.NET** OpenGL windowing. It runs a GLFW-backed window on a dedicated background thread,
-renders 2D content to a CPU-side SkiaSharp surface, then uploads the pixel data as an OpenGL
-texture each frame.
+SkiaViewer is a .NET 10.0 library that renders declarative 2D scenes in a GLFW window
+using SkiaSharp and Silk.NET. It supports both Vulkan GPU-accelerated and OpenGL CPU-raster
+rendering backends.
 
 ## Component Diagram
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                   User Application                    │
-│                                                      │
-│  ViewerConfig { OnRender, OnKeyDown, OnMouseScroll } │
-└──────────────────┬───────────────────────────────────┘
-                   │ Viewer.run config
-                   ▼
-┌──────────────────────────────────────────────────────┐
-│              Background Window Thread                 │
-│                                                      │
-│  ┌─────────────┐    ┌──────────────────────────┐     │
-│  │  Silk.NET    │    │  SkiaSharp Raster Surface │     │
-│  │  GLFW Window │    │  (SKSurface + SKCanvas)   │     │
-│  └──────┬──────┘    └────────────┬─────────────┘     │
-│         │                        │                    │
-│         │  OpenGL Context        │  Pixel Data        │
-│         ▼                        ▼                    │
-│  ┌──────────────────────────────────────────────┐    │
-│  │          OpenGL Texture Upload                │    │
-│  │  glTexImage2D(RGBA8, pixels)                  │    │
-│  └──────────────────────┬───────────────────────┘    │
-│                         │                             │
-│                         ▼                             │
-│  ┌──────────────────────────────────────────────┐    │
-│  │       Fullscreen Quad (VAO + Shader)          │    │
-│  │  Vertex Shader → Fragment Shader → Display    │    │
-│  └──────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ User Application                                        │
+│                                                         │
+│   IObservable<Scene> ──────┐    ┌── IObservable<Input>  │
+│                            │    │                       │
+└────────────────────────────┼────┼───────────────────────┘
+                             │    │
+                             ▼    │
+┌────────────────────────────────────────────────────────┐
+│ Viewer.run (background thread)                         │
+│                                                        │
+│   ┌──────────────┐    ┌───────────────┐                │
+│   │ Scene Stream │───▶│ SceneRenderer │                │
+│   │ Subscription │    │ (canvas draw) │                │
+│   └──────────────┘    └───────┬───────┘                │
+│                               │                        │
+│                               ▼                        │
+│   ┌───────────────────────────────────────────────┐    │
+│   │           Surface (SKSurface)                 │    │
+│   │  ┌─────────────────┬─────────────────────┐    │    │
+│   │  │ VulkanBackend   │ GL Raster Fallback  │    │    │
+│   │  │ (GPU SKSurface) │ (CPU SKSurface)     │    │    │
+│   │  └─────────────────┴─────────────────────┘    │    │
+│   └───────────────────────┬───────────────────────┘    │
+│                           │                            │
+│                           ▼                            │
+│   ┌───────────────────────────────────────────────┐    │
+│   │          OpenGL Fullscreen Quad               │    │
+│   │  Vertex shader ──▶ Fragment shader ──▶ Swap   │    │
+│   └───────────────────────────────────────────────┘    │
+│                                                        │
+│   ┌──────────────┐                                     │
+│   │ Input Wiring │ ── keyboard, mouse, resize ────────▶│
+│   └──────────────┘                                     │
+└────────────────────────────────────────────────────────┘
 ```
 
-## Threading Model
+## Source Files
 
-SkiaViewer uses a single dedicated background thread for the entire window lifecycle:
+| File | Visibility | Responsibility |
+|---|---|---|
+| `Scene.fsi` / `Scene.fs` | Public | Declarative scene DSL types and helper functions |
+| `SceneRenderer.fsi` / `SceneRenderer.fs` | Internal | Renders a `Scene` to an `SKCanvas` |
+| `VulkanBackend.fs` | Internal | Vulkan device/queue/GRContext initialization |
+| `Viewer.fsi` / `Viewer.fs` | Public | Window lifecycle, OpenGL pipeline, input wiring |
+
+## Threading Model
 *)
 
 (*** condition: prepare ***)
 #r "../src/SkiaViewer/bin/Release/net10.0/SkiaViewer.dll"
+#r "../src/SkiaViewer/bin/Release/net10.0/SkiaSharp.dll"
 (*** condition: fsx ***)
 #r "nuget: SkiaViewer"
 
 (**
-1. **`Viewer.run`** spawns a background thread that:
-   - Registers the GLFW platform (once, via a `lazy` value)
-   - Creates a `Silk.NET.Windowing.IWindow`
-   - Sets up the OpenGL context (shaders, VAO, VBO, texture)
-   - Creates the SkiaSharp raster surface
-   - Enters the GLFW event loop (`win.Run()`)
+`Viewer.run` spawns a dedicated background thread for the window. The calling thread
+gets back a `ViewerHandle` immediately and can continue with other work.
 
-2. **The render loop** executes each frame on the window thread:
-   - Clears the SkiaSharp canvas with `ClearColor`
-   - Calls `OnRender` with the canvas and framebuffer size
-   - Flushes the canvas
-   - Reads pixel data via `SKSurface.PeekPixels()`
-   - Uploads to the OpenGL texture via `glTexImage2D`
-   - Draws a fullscreen quad with the texture
+```
+Main Thread                  Window Thread
+    │                             │
+    ├── Viewer.run ──────────────▶├── GLFW register (lazy, once)
+    │   returns immediately       ├── Window.Create()
+    │                             ├── GL context setup
+    │                             ├── Shader compile + link
+    │                             ├── VAO/VBO fullscreen quad
+    │                             ├── Surface creation
+    │                             ├── Input wiring
+    │                             └── Render loop:
+    │                                  ├── Subscribe to scene stream
+    │                                  ├── Clear canvas
+    │                                  ├── SceneRenderer.render
+    │                                  ├── GPU flush / texture upload
+    │                                  ├── Draw quad
+    │                                  └── SwapBuffers
+    │
+    ├── sceneEvent.Trigger(scene)  (thread-safe scene push)
+    │
+    ├── viewer.Screenshot(...)     (thread-safe capture)
+    │
+    └── viewer.Dispose()          ─▶ shutdownRequested flag
+                                     ManualResetEventSlim wait
+                                     (5-second timeout)
+```
 
-3. **Cross-thread shutdown** is achieved through a `shutdownRequested` flag.
-   The window's `Update` event checks this flag and calls `win.Close()` when set.
-   A `ManualResetEventSlim` signals the caller when the thread exits.
+**Key thread-safety mechanisms:**
 
-## Surface Management
+- `surfaceLock` — a `lock` object protecting SKSurface access during screenshots
+  and rendering
+- `sceneLock` — protects the mutable scene reference updated by the observable subscription
+- `shutdownRequested` — a mutable boolean flag checked each frame for cross-thread shutdown
+- `ManualResetEventSlim` — used by `Dispose()` to wait for the window thread to complete
 
-The SkiaSharp `SKSurface` is protected by a `surfaceLock` object. This is necessary because:
+## Rendering Pipeline
 
-- The surface is created/destroyed on the window thread (during load and resize)
-- The render callback reads from the surface on the window thread
-- Shutdown can be requested from any thread
+### Backend Selection
 
-On resize, the viewer:
-1. Creates a new `SKSurface` matching the framebuffer size
-2. Swaps it in under the lock
-3. Disposes the old surface
+On startup, the viewer attempts to initialize a Vulkan GPU backend via `VulkanBackend.tryInit()`.
+If Vulkan is available, SkiaSharp creates a GPU-backed `SKSurface` through a `GRContext`.
+If Vulkan initialization fails (no driver, unsupported hardware), it falls back to CPU
+raster rendering.
 
-<details>
-<summary>What happens when the window is minimized?</summary>
+The backend selection is logged to stderr:
 
-When the framebuffer size is zero (minimized window), the surface is set to null under the lock.
-The render callback checks for null and skips rendering, preventing zero-size surface allocation.
-</details>
+```
+Backend selected: Vulkan (NVIDIA GeForce RTX 4090), MSAA: 4x
+```
 
-## OpenGL Pipeline
+or
 
-The OpenGL setup is minimal — just enough to display a textured quad:
+```
+Backend selected: GL (CPU raster)
+```
 
-| Resource | Purpose |
-|---|---|
-| Vertex Shader | Pass-through: maps NDC positions and texture coordinates |
-| Fragment Shader | Samples the texture at interpolated UV coordinates |
-| VAO + VBO | Fullscreen quad (2 triangles, 6 vertices) |
-| Texture | RGBA8 texture updated each frame with SkiaSharp pixels |
+### Frame Rendering
 
-The quad vertices cover the full normalized device coordinate range (-1 to 1) with texture
-coordinates flipped vertically (0,1 at bottom-left to 1,0 at top-right) to match SkiaSharp's
-top-left origin.
+Each frame follows this sequence:
+
+1. **Scene acquisition** — read the latest `Scene` from the mutable reference (under lock)
+2. **Canvas clear** — `canvas.Clear(scene.BackgroundColor)`
+3. **Scene rendering** — `SceneRenderer.render` walks the element tree depth-first:
+   - Converts DSL `Paint` to `SKPaint` (fill and/or stroke)
+   - Applies transforms via `canvas.Save()`/`canvas.Restore()`
+   - Applies clips to groups
+   - Draws each element type with the appropriate `canvas.Draw*` method
+4. **GPU flush** — `GRContext.Flush()` for Vulkan, or `canvas.Flush()` for GL raster
+5. **Texture upload** — pixel data is uploaded to an OpenGL RGBA8 texture
+6. **Quad render** — a fullscreen quad is drawn with the texture via vertex/fragment shaders
+7. **Buffer swap** — `window.SwapBuffers()`
+
+### OpenGL Pipeline
+
+The GL pipeline uses a minimal vertex/fragment shader pair to render a fullscreen quad:
+
+- **Vertex shader** — passes through quad vertices and flips UV coordinates vertically
+- **Fragment shader** — samples the RGBA8 texture
+- **VAO/VBO** — a single quad covering the viewport
+- **Texture** — one RGBA8 texture, re-uploaded each frame with the current surface pixels
 
 ## Exception Recovery
 
-Frame-level exceptions in the `OnRender` callback are caught and logged to stderr.
-This prevents a single bad frame from crashing the window. The following exception types
-are handled explicitly:
+The render loop wraps frame rendering in a `try/with` block that catches and
+recovers from:
 
-- `ObjectDisposedException` — surface disposed during render
-- `NullReferenceException` — surface became null mid-render
-- `ArgumentNullException` — null argument in SkiaSharp call
-- All other exceptions — caught as a general fallback
+| Exception | Recovery |
+|---|---|
+| `ObjectDisposedException` | Skip frame (resource was cleaned up during shutdown) |
+| `NullReferenceException` | Skip frame (surface not yet created or already disposed) |
+| `ArgumentNullException` | Skip frame (transient null during initialization) |
+
+All other exceptions propagate and terminate the window thread.
+
+## VulkanBackend Internals
+
+The `VulkanBackend` module handles Vulkan initialization:
+
+1. **Instance creation** — creates a Vulkan instance
+2. **Physical device enumeration** — selects the first available GPU
+3. **Queue family selection** — finds a graphics-capable queue family
+4. **Logical device creation** — creates a device with the selected queue
+5. **GRContext creation** — wraps the Vulkan device in a SkiaSharp `GRContext`
+6. **MSAA** — attempts 4x MSAA, falls back to no MSAA if unsupported
+
+The `ActiveBackend` discriminated union tracks whether Vulkan or GL raster is active:
+
+```
+VulkanActive of State    — Vulkan device, queue, GRContext, MSAA config
+GlRasterActive           — CPU raster fallback
+```
+
+## Design Decisions
+
+### Declarative Scene Model
+
+Scenes are immutable data structures rather than imperative draw commands. This enables:
+
+- Thread-safe scene updates (push a new `Scene` value, no shared mutable canvas)
+- Scene serialization and diffing (future optimization potential)
+- Testability — `SceneRenderer` can render to any `SKCanvas`, including offscreen bitmaps
+
+### IObservable Streams
+
+Using `IObservable<Scene>` and `IObservable<InputEvent>` rather than callbacks:
+
+- Decouples the viewer from application logic
+- Composes naturally with Rx operators
+- Allows multiple subscribers
+- Error handling via `OnError` (viewer preserves last valid scene)
+
+### Background Thread
+
+Running the window on a background thread rather than the main thread:
+
+- `Viewer.run` returns immediately — caller decides when to block
+- Multiple viewers could theoretically run concurrently (GLFW limits this to one)
+- Integrates naturally into async/reactive applications
 
 ## Dependencies
 
-| Package | Version | Role |
+| Package | Version | Purpose |
 |---|---|---|
-| `Silk.NET.Windowing` | 2.22.0 | GLFW window creation and event loop |
-| `Silk.NET.OpenGL` | 2.22.0 | OpenGL API bindings |
+| `SkiaSharp` | 2.88.6 | 2D rendering engine |
+| `SkiaSharp.NativeAssets.Linux.NoDependencies` | 2.88.6 | Linux native binaries |
+| `Silk.NET.Windowing` | 2.22.0 | Cross-platform windowing (GLFW) |
+| `Silk.NET.OpenGL` | 2.22.0 | OpenGL bindings for texture pipeline |
 | `Silk.NET.Input` | 2.22.0 | Keyboard and mouse input |
-| `SkiaSharp` | 2.88.6 | 2D raster rendering (CPU) |
-
-<div class="alert alert-info">
-<strong>Design choice:</strong> Raster rendering (CPU-side SkiaSharp) was chosen over
-GPU-accelerated SkiaSharp (<code>GRContext</code>) to keep the OpenGL interop simple and
-avoid shared GL context complexities. The texture upload path is efficient for typical
-2D visualization workloads.
-</div>
+| `Silk.NET.Vulkan` | 2.22.0 | Vulkan bindings for GPU backend |
 
 ## Next Steps
 
-- [Getting Started](getting-started.html) — create your first viewer
-- [API Reference](reference/index.html) — full type and function documentation
-- [Test Suite](tests.html) — see how the viewer is tested
+- [API Reference](reference/index.html) — auto-generated API documentation
+- [Known Issues](known-issues.html) — current limitations
+- [Test Suite Documentation](tests.html) — comprehensive test coverage
 *)

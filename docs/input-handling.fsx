@@ -3,119 +3,184 @@
 title: Input Handling
 category: Tutorials
 categoryindex: 2
-index: 3
-description: Handle keyboard, mouse scroll, and drag input in SkiaViewer.
+index: 5
+description: Keyboard, mouse, and window events via reactive input streams.
 ---
 *)
 
 (**
 # Input Handling
 
-SkiaViewer exposes three input callbacks on `ViewerConfig`: `OnKeyDown`, `OnMouseScroll`,
-and `OnMouseDrag`. These are wired to Silk.NET's input system and called on the window thread.
+SkiaViewer delivers input events through an `IObservable<InputEvent>` stream
+returned by `Viewer.run`. Events are emitted on the window thread and include
+keyboard, mouse, window resize, and per-frame timing events.
 
-<div class="alert alert-warning">
-<strong>Thread safety:</strong> Input callbacks run on the window's background thread. If you
-modify shared mutable state from these callbacks, use <code>Interlocked</code> operations or
-locks to avoid races with your main thread.
-</div>
+## Setup
 *)
 
 (*** condition: prepare ***)
 #r "../src/SkiaViewer/bin/Release/net10.0/SkiaViewer.dll"
+#r "../src/SkiaViewer/bin/Release/net10.0/SkiaSharp.dll"
+#r "../src/SkiaViewer/bin/Release/net10.0/Silk.NET.Input.Common.dll"
 (*** condition: fsx ***)
 #r "nuget: SkiaViewer"
 
 open SkiaViewer
 open SkiaSharp
 open Silk.NET.Input
-open System.Threading
 
 (**
-## Keyboard Input
+## The InputEvent Type
 
-The `OnKeyDown` callback receives a `Silk.NET.Input.Key` value each time a key is pressed.
-Use pattern matching to respond to specific keys:
+`InputEvent` is a discriminated union covering all supported input events:
 *)
 
 (*** do-not-eval ***)
-let mutable message = "Press a key..."
-
-let onKeyDown (key: Key) =
-    match key with
-    | Key.Escape -> message <- "Escape pressed — quitting"
-    | Key.Space  -> message <- "Space pressed!"
-    | k          -> message <- $"Key: {k}"
+type InputEventCases =
+    | KeyDown of key: Key
+    | KeyUp of key: Key
+    | MouseMove of x: float32 * y: float32
+    | MouseDown of button: MouseButton * x: float32 * y: float32
+    | MouseUp of button: MouseButton * x: float32 * y: float32
+    | MouseScroll of delta: float32 * x: float32 * y: float32
+    | WindowResize of width: int * height: int
+    | FrameTick of elapsedSeconds: float
 
 (**
-## Mouse Scroll
+## Subscribing to Events
 
-`OnMouseScroll` provides the scroll delta and the mouse position at the time of the event.
-This is useful for implementing zoom:
+`Viewer.run` returns a tuple of `ViewerHandle * IObservable<InputEvent>`.
+Subscribe to the observable to handle events:
 *)
 
 (*** do-not-eval ***)
-let mutable scale = 1.0f
+open System
 
-let onScroll (delta: float32) (mouseX: float32) (mouseY: float32) =
-    let zoomFactor = 1.0f + delta * 0.1f
-    scale <- scale * zoomFactor
-
-(**
-## Mouse Drag
-
-`OnMouseDrag` fires during a left-button drag with the movement delta in pixels.
-This is ideal for panning:
-*)
-
-(*** do-not-eval ***)
-let mutable offsetX = 0.0f
-let mutable offsetY = 0.0f
-
-let onDrag (dx: float32) (dy: float32) =
-    offsetX <- offsetX + dx
-    offsetY <- offsetY + dy
-
-(**
-## Complete Interactive Example
-
-Here is a full example combining all input types. The viewer displays a draggable,
-zoomable rectangle with keyboard feedback:
-*)
-
-(*** do-not-eval ***)
-let interactiveConfig =
-    { Title = "Interactive Input Demo"
-      Width = 600
-      Height = 400
+let config : ViewerConfig =
+    { Title = "Input Demo"
+      Width = 800
+      Height = 600
       TargetFps = 60
-      ClearColor = SKColors.DarkSlateGray
-      OnRender = fun canvas _ ->
-          canvas.Save() |> ignore
-          canvas.Translate(offsetX, offsetY)
-          canvas.Scale(scale)
+      ClearColor = SKColors.Black
+      PreferredBackend = None }
 
-          use rectPaint = new SKPaint(Color = SKColors.DodgerBlue, IsAntialias = true)
-          canvas.DrawRect(100.0f, 100.0f, 200.0f, 150.0f, rectPaint)
+let sceneEvent = Event<Scene>()
+let (viewer, inputs) = Viewer.run config sceneEvent.Publish
+use viewer = viewer
 
-          canvas.Restore()
+use _sub = inputs.Subscribe(fun evt ->
+    match evt with
+    | InputEvent.KeyDown key ->
+        printfn $"Key down: {key}"
 
-          use textPaint = new SKPaint(Color = SKColors.White, TextSize = 18.0f, IsAntialias = true)
-          canvas.DrawText(message, 10.0f, 30.0f, textPaint)
-          canvas.DrawText($"Scale: %.2f{scale}  Offset: (%.0f{offsetX}, %.0f{offsetY})", 10.0f, 55.0f, textPaint)
-      OnResize = fun _ _ -> ()
-      OnKeyDown = onKeyDown
-      OnMouseScroll = onScroll
-      OnMouseDrag = onDrag }
+    | InputEvent.KeyUp key ->
+        printfn $"Key up: {key}"
 
-let viewer = Viewer.run interactiveConfig
-System.Threading.Thread.Sleep(10000)
-viewer.Dispose()
+    | InputEvent.MouseMove(x, y) ->
+        printfn $"Mouse at ({x}, {y})"
+
+    | InputEvent.MouseDown(button, x, y) ->
+        printfn $"Mouse {button} down at ({x}, {y})"
+
+    | InputEvent.MouseUp(button, x, y) ->
+        printfn $"Mouse {button} up at ({x}, {y})"
+
+    | InputEvent.MouseScroll(delta, x, y) ->
+        printfn $"Scroll {delta} at ({x}, {y})"
+
+    | InputEvent.WindowResize(w, h) ->
+        printfn $"Window resized to {w}x{h}"
+
+    | InputEvent.FrameTick elapsed ->
+        () // fired every frame with elapsed seconds since start
+)
 
 (**
+<div class="alert alert-info">
+<strong>Tip:</strong> <code>FrameTick</code> fires every frame and carries the elapsed time
+since the viewer started. Use it for animations by computing scene updates based on the
+elapsed time value.
+</div>
+
+## Interactive Example: Zoom and Pan
+
+This example builds a simple interactive viewer with keyboard zoom and mouse pan:
+*)
+
+(*** do-not-eval ***)
+let mutable zoom = 1.0f
+let mutable panX = 0f
+let mutable panY = 0f
+
+let updateScene () =
+    sceneEvent.Trigger(
+        Scene.create SKColors.DarkSlateGray [
+            Scene.translate panX panY [
+                Scene.scale zoom zoom [
+                    Scene.rect 100f 100f 200f 150f (Scene.fill SKColors.CornflowerBlue)
+                    Scene.circle 300f 250f 60f (Scene.fill SKColors.Coral)
+                    Scene.text $"Zoom: {zoom:F1}x" 100f 350f 20f (Scene.fill SKColors.White)
+                ]
+            ]
+        ])
+
+updateScene ()
+
+use _inputSub = inputs.Subscribe(fun evt ->
+    match evt with
+    | InputEvent.MouseScroll(delta, _, _) ->
+        zoom <- zoom + delta * 0.1f |> max 0.1f |> min 10f
+        updateScene ()
+
+    | InputEvent.KeyDown Key.Left -> panX <- panX - 20f; updateScene ()
+    | InputEvent.KeyDown Key.Right -> panX <- panX + 20f; updateScene ()
+    | InputEvent.KeyDown Key.Up -> panY <- panY - 20f; updateScene ()
+    | InputEvent.KeyDown Key.Down -> panY <- panY + 20f; updateScene ()
+
+    | InputEvent.KeyDown Key.Escape ->
+        (viewer :> IDisposable).Dispose()
+
+    | _ -> ())
+
+Console.ReadLine() |> ignore
+
+(**
+## Animation with FrameTick
+
+Use `FrameTick` to drive smooth animations. The `elapsedSeconds` value increases
+monotonically, so derive positions from it rather than from incremental deltas:
+*)
+
+(*** do-not-eval ***)
+use _animSub = inputs.Subscribe(fun evt ->
+    match evt with
+    | InputEvent.FrameTick elapsed ->
+        let t = float32 elapsed
+        let x = 200f + 100f * cos(t * 2f)
+        let y = 200f + 100f * sin(t * 2f)
+        sceneEvent.Trigger(
+            Scene.create SKColors.Black [
+                Scene.circle x y 20f (Scene.fill SKColors.Coral)
+            ])
+    | _ -> ())
+
+(**
+## Thread Safety
+
+<div class="alert alert-warning">
+<strong>Important:</strong> Input events fire on the window thread. If your event handler
+modifies shared mutable state, use appropriate synchronization. For simple cases, mutable
+variables with <code>Interlocked</code> operations or a lock are sufficient.
+</div>
+
+## Scene Stream Error Recovery
+
+If the scene observable emits an `OnError`, the viewer preserves the last valid scene
+and continues rendering. The window does not crash — it simply keeps displaying the
+last successfully received scene.
+
 ## Next Steps
 
-- [Getting Started](getting-started.html) — basic viewer setup
-- [Architecture Overview](architecture.html) — threading model and rendering pipeline
-- [API Reference](reference/index.html)
+- [Screenshots](screenshots.html) — capture rendered frames to files
+- [Architecture Overview](architecture.html) — threading model details
 *)
