@@ -1,7 +1,6 @@
 namespace SkiaViewer
 
 open System
-open System.Collections.Generic
 open SkiaSharp
 
 type internal CacheStats =
@@ -9,69 +8,37 @@ type internal CacheStats =
       Misses: int
       Evictions: int }
 
+/// Position-indexed cache slot for a single Group element.
 [<NoEquality; NoComparison>]
-type private CacheEntry(picture: SKPicture, generation: int) =
-    member _.Picture = picture
-    member val Generation = generation with get, set
-    member _.DisposePicture() =
-        if not (isNull picture) then picture.Dispose()
+type private CacheSlot =
+    { ChildrenRef: Element list
+      Picture: SKPicture
+      mutable Generation: int }
+    member s.DisposePicture() =
+        if not (isNull s.Picture) then s.Picture.Dispose()
 
 [<Sealed>]
 type internal RenderCache(maxAge: int) =
-    // Cache key: children Element list (structural equality).
-    // Transform, clip, and group paint are applied at replay time,
-    // so changing only those gives a cache hit.
-    let groupCache = Dictionary<Element list, CacheEntry>()
+    let mutable slots: CacheSlot option array = Array.zeroCreate 32
     let mutable generation = 0
     let mutable enabled = true
     let mutable lastStats = { Hits = 0; Misses = 0; Evictions = 0 }
+    let mutable previousScene: Scene voption = ValueNone
+    let recordBounds = SKRect(0f, 0f, 4096f, 4096f)
+
+    let ensureCapacity (needed: int) =
+        if needed > slots.Length then
+            let newSlots = Array.zeroCreate (max needed (slots.Length * 2))
+            Array.Copy(slots, newSlots, slots.Length)
+            slots <- newSlots
 
     let recordChildren (children: Element list) : SKPicture =
         use recorder = new SKPictureRecorder()
-        let bounds = SKRect(-1e6f, -1e6f, 1e6f, 1e6f)
-        let recCanvas = recorder.BeginRecording(bounds)
+        let recCanvas = recorder.BeginRecording(recordBounds)
         SceneRenderer.renderElements children recCanvas
         recorder.EndRecording()
 
-    let sweepExpired () =
-        let mutable evictions = 0
-        let toRemove = ResizeArray()
-        for kvp in groupCache do
-            if generation - kvp.Value.Generation > maxAge then
-                toRemove.Add(kvp.Key)
-        for key in toRemove do
-            match groupCache.TryGetValue(key) with
-            | true, entry ->
-                entry.DisposePicture()
-                groupCache.Remove(key) |> ignore
-                evictions <- evictions + 1
-            | _ -> ()
-        evictions
-
-    let renderGroupCached
-        (canvas: SKCanvas)
-        (transform: Transform option)
-        (groupPaint: Paint option)
-        (clip: Clip option)
-        (children: Element list)
-        (hits: byref<int>)
-        (misses: byref<int>)
-        =
-        // Look up children in cache
-        let entry =
-            match groupCache.TryGetValue(children) with
-            | true, existing ->
-                existing.Generation <- generation
-                hits <- hits + 1
-                existing
-            | false, _ ->
-                let picture = recordChildren children
-                let newEntry = CacheEntry(picture, generation)
-                groupCache.[children] <- newEntry
-                misses <- misses + 1
-                newEntry
-
-        // Apply group state and replay cached picture
+    let replaySlot (canvas: SKCanvas) (transform: Transform option) (groupPaint: Paint option) (clip: Clip option) (slot: CacheSlot) =
         let useLayer =
             match groupPaint with
             | Some p when p.Opacity < 1.0f -> true
@@ -95,8 +62,19 @@ type internal RenderCache(maxAge: int) =
         | Some c -> SceneRenderer.applyClip canvas c
         | None -> ()
 
-        canvas.DrawPicture(entry.Picture)
+        canvas.DrawPicture(slot.Picture)
         canvas.Restore()
+
+    let sweepExpired () =
+        let mutable evictions = 0
+        for i in 0 .. slots.Length - 1 do
+            match slots.[i] with
+            | Some slot when generation - slot.Generation > maxAge ->
+                slot.DisposePicture()
+                slots.[i] <- None
+                evictions <- evictions + 1
+            | _ -> ()
+        evictions
 
     member _.Enabled
         with get () = enabled
@@ -105,9 +83,13 @@ type internal RenderCache(maxAge: int) =
     member _.Stats = lastStats
 
     member _.Invalidate() =
-        for kvp in groupCache do
-            kvp.Value.DisposePicture()
-        groupCache.Clear()
+        for i in 0 .. slots.Length - 1 do
+            match slots.[i] with
+            | Some slot ->
+                slot.DisposePicture()
+                slots.[i] <- None
+            | None -> ()
+        previousScene <- ValueNone
 
     member this.Render (scene: Scene) (canvas: SKCanvas) =
         if not enabled then
@@ -115,20 +97,81 @@ type internal RenderCache(maxAge: int) =
             lastStats <- { Hits = 0; Misses = 0; Evictions = 0 }
         else
             generation <- generation + 1
-            let mutable hits = 0
-            let mutable misses = 0
 
-            canvas.Clear(scene.BackgroundColor)
+            // Scene-level reference-equality fast path
+            match previousScene with
+            | ValueSome prev when Object.ReferenceEquals(prev, scene) ->
+                canvas.Clear(scene.BackgroundColor)
+                let mutable hits = 0
+                let elements = scene.Elements
+                let mutable idx = 0
+                for element in elements do
+                    match element with
+                    | Element.Group(transform, groupPaint, clip, _children) ->
+                        match slots.[idx] with
+                        | Some slot ->
+                            slot.Generation <- generation
+                            replaySlot canvas transform groupPaint clip slot
+                            hits <- hits + 1
+                        | None ->
+                            // Slot was evicted — re-render directly
+                            SceneRenderer.renderElements [ element ] canvas
+                    | _ ->
+                        SceneRenderer.renderElements [ element ] canvas
+                    idx <- idx + 1
+                lastStats <- { Hits = hits; Misses = 0; Evictions = 0 }
+            | _ ->
+                // Per-element comparison path
+                let elements = scene.Elements
+                let elementCount = elements.Length
+                ensureCapacity elementCount
 
-            for element in scene.Elements do
-                match element with
-                | Element.Group(transform, groupPaint, clip, children) ->
-                    renderGroupCached canvas transform groupPaint clip children &hits &misses
-                | _ ->
-                    SceneRenderer.renderElements [ element ] canvas
+                canvas.Clear(scene.BackgroundColor)
+                let mutable hits = 0
+                let mutable misses = 0
+                let mutable idx = 0
 
-            let evictions = sweepExpired ()
-            lastStats <- { Hits = hits; Misses = misses; Evictions = evictions }
+                for element in elements do
+                    match element with
+                    | Element.Group(transform, groupPaint, clip, children) ->
+                        let cached =
+                            match slots.[idx] with
+                            | Some slot ->
+                                // Fast: reference equality on children list
+                                if Object.ReferenceEquals(children, slot.ChildrenRef) then
+                                    Some slot
+                                // Slow: structural equality fallback
+                                elif children = slot.ChildrenRef then
+                                    Some { slot with ChildrenRef = children }
+                                else
+                                    None
+                            | None -> None
+
+                        match cached with
+                        | Some slot ->
+                            slot.Generation <- generation
+                            slots.[idx] <- Some slot
+                            replaySlot canvas transform groupPaint clip slot
+                            hits <- hits + 1
+                        | None ->
+                            // Dispose old slot if present (counts as eviction)
+                            match slots.[idx] with
+                            | Some old ->
+                                old.DisposePicture()
+                            | None -> ()
+                            // Record new
+                            let picture = recordChildren children
+                            let newSlot = { ChildrenRef = children; Picture = picture; Generation = generation }
+                            slots.[idx] <- Some newSlot
+                            replaySlot canvas transform groupPaint clip newSlot
+                            misses <- misses + 1
+                    | _ ->
+                        SceneRenderer.renderElements [ element ] canvas
+                    idx <- idx + 1
+
+                let evictions = sweepExpired ()
+                previousScene <- ValueSome scene
+                lastStats <- { Hits = hits; Misses = misses; Evictions = evictions }
 
     interface IDisposable with
         member this.Dispose() = this.Invalidate()

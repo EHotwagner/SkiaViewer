@@ -10,6 +10,7 @@ Auto-generated from all feature plans. Last updated: 2026-04-09
 - Stdout for results; optional JSON file output (004-perf-test-suite)
 - F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture), Silk.NET 2.22.0 (006-scene-diff-caching)
 - In-memory dictionaries (render-thread only) (006-scene-diff-caching)
+- In-memory position-indexed array (render-thread only) (007-cache-overhead-opt)
 
 - F# on .NET 10.0 + Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, SkiaSharp 2.88.6, SkiaSharp.NativeAssets.Linux.NoDependencies 2.88.6, **Silk.NET.Vulkan 2.22.0 (new)** (001-vulkan-rendering-backend)
 
@@ -29,9 +30,9 @@ tests/
 F# on .NET 10.0: Follow standard conventions
 
 ## Recent Changes
+- 007-cache-overhead-opt: Added F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture)
 - 006-scene-diff-caching: Added F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture), Silk.NET 2.22.0
 - 005-skia-api-coverage: Added F# on .NET 10.0 + SkiaSharp 2.88.6, Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, Silk.NET.Vulkan 2.22.0
-- 004-perf-test-suite: Added F# on .NET 10.0 + SkiaViewer (project reference), SkiaSharp 2.88.6, Silk.NET 2.22.0 (Windowing, OpenGL, Input, Vulkan)
 
 
 <!-- MANUAL ADDITIONS START -->
