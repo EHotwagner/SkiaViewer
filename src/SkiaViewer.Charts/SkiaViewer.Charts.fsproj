@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <IsPackable>true</IsPackable>
+    <PackageId>SkiaViewer.Charts</PackageId>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>EHotwagner</Authors>
+    <Description>Charting and DataGrid elements for SkiaViewer. Provides line, bar, pie, scatter, area, histogram, candlestick, and radar charts plus a sortable, scrollable DataGrid — all composing into the SkiaViewer declarative scene DSL.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/EHotwagner/SkiaViewer</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SkiaViewer.Charts.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fsi" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Axis.fsi" />
+    <Compile Include="Axis.fs" />
+    <Compile Include="ChartHelpers.fsi" />
+    <Compile Include="ChartHelpers.fs" />
+    <Compile Include="LineChart.fsi" />
+    <Compile Include="LineChart.fs" />
+    <Compile Include="BarChart.fsi" />
+    <Compile Include="BarChart.fs" />
+    <Compile Include="PieChart.fsi" />
+    <Compile Include="PieChart.fs" />
+    <Compile Include="ScatterPlot.fsi" />
+    <Compile Include="ScatterPlot.fs" />
+    <Compile Include="AreaChart.fsi" />
+    <Compile Include="AreaChart.fs" />
+    <Compile Include="Histogram.fsi" />
+    <Compile Include="Histogram.fs" />
+    <Compile Include="Candlestick.fsi" />
+    <Compile Include="Candlestick.fs" />
+    <Compile Include="RadarChart.fsi" />
+    <Compile Include="RadarChart.fs" />
+    <Compile Include="DataGrid.fsi" />
+    <Compile Include="DataGrid.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SkiaViewer/SkiaViewer.fsproj" />
+  </ItemGroup>
+
+</Project>

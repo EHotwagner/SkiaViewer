@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-09
 - F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture), Silk.NET 2.22.0 (006-scene-diff-caching)
 - In-memory dictionaries (render-thread only) (006-scene-diff-caching)
 - In-memory position-indexed array (render-thread only) (007-cache-overhead-opt)
+- F# on .NET 10.0 + SkiaSharp 2.88.6 (transitive via SkiaViewer project reference). No new NuGet dependencies. (008-charting-datagrid-library)
+- N/A — all data is immutable per render frame (008-charting-datagrid-library)
 
 - F# on .NET 10.0 + Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, SkiaSharp 2.88.6, SkiaSharp.NativeAssets.Linux.NoDependencies 2.88.6, **Silk.NET.Vulkan 2.22.0 (new)** (001-vulkan-rendering-backend)
 
@@ -30,9 +32,9 @@ tests/
 F# on .NET 10.0: Follow standard conventions
 
 ## Recent Changes
+- 008-charting-datagrid-library: Added F# on .NET 10.0 + SkiaSharp 2.88.6 (transitive via SkiaViewer project reference). No new NuGet dependencies.
 - 007-cache-overhead-opt: Added F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture)
 - 006-scene-diff-caching: Added F# on .NET 10.0 + SkiaSharp 2.88.6 (SKPictureRecorder, SKPicture), Silk.NET 2.22.0
-- 005-skia-api-coverage: Added F# on .NET 10.0 + SkiaSharp 2.88.6, Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, Silk.NET.Vulkan 2.22.0
 
 
 <!-- MANUAL ADDITIONS START -->

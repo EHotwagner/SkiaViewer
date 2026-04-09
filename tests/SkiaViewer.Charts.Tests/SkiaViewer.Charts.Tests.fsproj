@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AxisTests.fs" />
+    <Compile Include="LineChartTests.fs" />
+    <Compile Include="BarChartTests.fs" />
+    <Compile Include="PieChartTests.fs" />
+    <Compile Include="ScatterPlotTests.fs" />
+    <Compile Include="AreaChartTests.fs" />
+    <Compile Include="HistogramTests.fs" />
+    <Compile Include="CandlestickTests.fs" />
+    <Compile Include="RadarChartTests.fs" />
+    <Compile Include="DataGridTests.fs" />
+    <Compile Include="EdgeCaseTests.fs" />
+    <Compile Include="SurfaceAreaTests.fs" />
+    <Compile Include="GraphicalTests.fs" />
+    <Compile Include="WindowTest.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/SkiaViewer.Charts/SkiaViewer.Charts.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>
