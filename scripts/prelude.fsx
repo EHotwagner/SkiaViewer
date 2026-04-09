@@ -7,7 +7,13 @@
 /// Or from FSI:
 ///   #load "scripts/prelude.fsx"
 
-#r "src/SkiaViewer/bin/Debug/net10.0/SkiaViewer.dll"
+#r "nuget: SkiaSharp, 2.88.6"
+#r "nuget: SkiaSharp.NativeAssets.Linux.NoDependencies, 2.88.6"
+#r "nuget: Silk.NET.Windowing, 2.22.0"
+#r "nuget: Silk.NET.OpenGL, 2.22.0"
+#r "nuget: Silk.NET.Input, 2.22.0"
+#r "nuget: Silk.NET.Vulkan, 2.22.0"
+#r "../src/SkiaViewer/bin/Debug/net10.0/SkiaViewer.dll"
 
 open System
 open System.Threading

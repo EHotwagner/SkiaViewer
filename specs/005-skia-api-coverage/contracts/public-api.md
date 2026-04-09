@@ -1,3 +1,12 @@
+# Public API Contract: Comprehensive SkiaSharp API Coverage
+
+**Branch**: `005-skia-api-coverage` | **Date**: 2026-04-09
+
+## Scene.fsi — New and Modified Public Types
+
+### New DU Types
+
+```fsharp
 namespace SkiaViewer
 
 open SkiaSharp
@@ -25,35 +34,6 @@ type BlendMode =
 [<RequireQualifiedAccess>]
 type TileMode = | Clamp | Repeat | Mirror | Decal
 
-/// Font slant style.
-[<RequireQualifiedAccess>]
-type FontSlant = | Upright | Italic | Oblique
-
-/// Font specification for text rendering.
-type FontSpec =
-    { Family: string
-      Weight: int
-      Slant: FontSlant
-      Width: int }
-
-/// Path winding direction.
-[<RequireQualifiedAccess>]
-type PathDirection = | Clockwise | CounterClockwise
-
-/// Path drawing commands.
-[<RequireQualifiedAccess>]
-type PathCommand =
-    | MoveTo of x: float32 * y: float32
-    | LineTo of x: float32 * y: float32
-    | QuadTo of cx: float32 * cy: float32 * x: float32 * y: float32
-    | CubicTo of c1x: float32 * c1y: float32 * c2x: float32 * c2y: float32 * x: float32 * y: float32
-    | ArcTo of rect: SKRect * startAngle: float32 * sweepAngle: float32
-    | Close
-    | AddRect of rect: SKRect * direction: PathDirection
-    | AddCircle of cx: float32 * cy: float32 * radius: float32 * direction: PathDirection
-    | AddOval of rect: SKRect * direction: PathDirection
-    | AddRoundRect of rect: SKRect * rx: float32 * ry: float32 * direction: PathDirection
-
 /// Fill shader applied to an element's paint.
 [<RequireQualifiedAccess>]
 type Shader =
@@ -66,7 +46,6 @@ type Shader =
     | SolidColor of color: SKColor
     | Image of bitmap: SKBitmap * tileModeX: TileMode * tileModeY: TileMode
     | Compose of shader1: Shader * shader2: Shader * blendMode: BlendMode
-    | RuntimeEffect of source: string * uniforms: (string * float32) list
 
 /// Trim path effect mode.
 [<RequireQualifiedAccess>]
@@ -120,11 +99,11 @@ type ImageFilter =
     | Dilate of radiusX: int * radiusY: int
     | Erode of radiusX: int * radiusY: int
     | Offset of dx: float32 * dy: float32
-    | WithColorFilter of filter: ColorFilter
+    | ColorFilter of filter: ColorFilter
     | Compose of outer: ImageFilter * inner: ImageFilter
     | Merge of filters: ImageFilter list
     | DisplacementMap of xChannel: ColorChannel * yChannel: ColorChannel * scale: float32 * displacement: ImageFilter
-    | MatrixConvolution of kernelWidth: int * kernelHeight: int * kernel: float32[] * gain: float32 * bias: float32 * offsetX: int * offsetY: int * tileMode: TileMode * convolveAlpha: bool
+    | MatrixConvolution of kernelSize: int * int * kernel: float32[] * gain: float32 * bias: float32 * kernelOffset: int * int * tileMode: TileMode * convolveAlpha: bool
 
 /// Clip operation type.
 [<RequireQualifiedAccess>]
@@ -135,7 +114,17 @@ type ClipOperation = | Intersect | Difference
 type Clip =
     | Rect of rect: SKRect * operation: ClipOperation * antialias: bool
     | Path of commands: PathCommand list * operation: ClipOperation * antialias: bool
-    | Region of region: SKRegion * operation: ClipOperation
+
+/// Font slant style.
+[<RequireQualifiedAccess>]
+type FontSlant = | Upright | Italic | Oblique
+
+/// Font specification for text rendering.
+type FontSpec =
+    { Family: string
+      Weight: int
+      Slant: FontSlant
+      Width: int }
 
 /// Point rendering mode.
 [<RequireQualifiedAccess>]
@@ -153,9 +142,9 @@ type PathOp = | Difference | Intersect | Union | Xor | ReverseDifference
 [<RequireQualifiedAccess>]
 type PathFillType = | Winding | EvenOdd | InverseWinding | InverseEvenOdd
 
-/// Region boolean operation.
+/// Path winding direction.
 [<RequireQualifiedAccess>]
-type RegionOp = | Difference | Intersect | Union | Xor | ReverseDifference | Replace
+type PathDirection = | Clockwise | CounterClockwise
 
 /// 3D transformation for perspective effects.
 [<RequireQualifiedAccess>]
@@ -166,8 +155,12 @@ type Transform3D =
     | Translate of x: float32 * y: float32 * z: float32
     | Camera of x: float32 * y: float32 * z: float32
     | Compose of Transform3D list
+```
 
-/// Declarative visual style applied to elements.
+### Modified Types
+
+```fsharp
+/// Declarative visual style applied to elements. (BREAKING — new required fields)
 type Paint =
     { Fill: SKColor option
       Stroke: SKColor option
@@ -185,7 +178,21 @@ type Paint =
       PathEffect: PathEffect option
       Font: FontSpec option }
 
-/// 2D spatial transformation.
+/// Path drawing commands. (Extended with convenience commands)
+[<RequireQualifiedAccess>]
+type PathCommand =
+    | MoveTo of x: float32 * y: float32
+    | LineTo of x: float32 * y: float32
+    | QuadTo of cx: float32 * cy: float32 * x: float32 * y: float32
+    | CubicTo of c1x: float32 * c1y: float32 * c2x: float32 * c2y: float32 * x: float32 * y: float32
+    | ArcTo of rect: SKRect * startAngle: float32 * sweepAngle: float32
+    | Close
+    | AddRect of rect: SKRect * direction: PathDirection
+    | AddCircle of cx: float32 * cy: float32 * radius: float32 * direction: PathDirection
+    | AddOval of rect: SKRect * direction: PathDirection
+    | AddRoundRect of rect: SKRect * rx: float32 * ry: float32 * direction: PathDirection
+
+/// 2D spatial transformation. (Extended with 3D perspective)
 [<RequireQualifiedAccess>]
 type Transform =
     | Translate of x: float32 * y: float32
@@ -195,7 +202,7 @@ type Transform =
     | Compose of Transform list
     | Perspective of Transform3D
 
-/// Declarative visual element — building block of a scene tree.
+/// Declarative visual element. (Extended with new primitives and clip on Group)
 [<RequireQualifiedAccess>]
 type Element =
     | Rect of x: float32 * y: float32 * width: float32 * height: float32 * paint: Paint
@@ -209,110 +216,76 @@ type Element =
     | Vertices of positions: SKPoint[] * colors: SKColor[] * mode: VertexMode * paint: Paint
     | Arc of rect: SKRect * startAngle: float32 * sweepAngle: float32 * useCenter: bool * paint: Paint
     | Picture of picture: SKPicture * transform: Transform option
-    | TextBlob of runs: (string * SKPoint * float32 * FontSpec option) list * paint: Paint
+```
 
-/// Root container representing one complete frame of visual output.
-type Scene =
-    { BackgroundColor: SKColor
-      Elements: Element list }
+### New Scene Module Functions
 
-/// Strongly-typed input event produced by the viewer.
-[<RequireQualifiedAccess>]
-type InputEvent =
-    | KeyDown of key: Silk.NET.Input.Key
-    | KeyUp of key: Silk.NET.Input.Key
-    | MouseMove of x: float32 * y: float32
-    | MouseDown of button: Silk.NET.Input.MouseButton * x: float32 * y: float32
-    | MouseUp of button: Silk.NET.Input.MouseButton * x: float32 * y: float32
-    | MouseScroll of delta: float32 * x: float32 * y: float32
-    | WindowResize of width: int * height: int
-    | FrameTick of elapsedSeconds: float
-
-/// DSL helpers for concise scene construction.
+```fsharp
 module Scene =
-    /// Empty paint (invisible element) with sensible defaults.
+    // ... existing functions updated to use new Paint ...
+
+    /// Empty paint with sensible defaults for all new fields.
     val emptyPaint: Paint
-    /// Default font specification.
-    val defaultFont: FontSpec
-    /// Create a fill-only paint.
-    val fill: color: SKColor -> Paint
-    /// Create a stroke-only paint.
-    val stroke: color: SKColor -> width: float32 -> Paint
-    /// Create a fill+stroke paint.
-    val fillStroke: fill: SKColor -> stroke: SKColor -> strokeWidth: float32 -> Paint
-    /// Set opacity on a paint.
-    val withOpacity: opacity: float32 -> paint: Paint -> Paint
-    /// Set stroke cap on a paint.
+
+    // New DSL helpers for paint modification
     val withStrokeCap: cap: StrokeCap -> paint: Paint -> Paint
-    /// Set stroke join on a paint.
     val withStrokeJoin: join: StrokeJoin -> paint: Paint -> Paint
-    /// Set blend mode on a paint.
     val withBlendMode: mode: BlendMode -> paint: Paint -> Paint
-    /// Set shader on a paint.
     val withShader: shader: Shader -> paint: Paint -> Paint
-    /// Set color filter on a paint.
     val withColorFilter: filter: ColorFilter -> paint: Paint -> Paint
-    /// Set mask filter on a paint.
     val withMaskFilter: filter: MaskFilter -> paint: Paint -> Paint
-    /// Set image filter on a paint.
     val withImageFilter: filter: ImageFilter -> paint: Paint -> Paint
-    /// Set path effect on a paint.
     val withPathEffect: effect: PathEffect -> paint: Paint -> Paint
-    /// Set font on a paint.
     val withFont: font: FontSpec -> paint: Paint -> Paint
-    /// Create an empty scene with the given background color.
-    val empty: backgroundColor: SKColor -> Scene
-    /// Create a scene with elements.
-    val create: backgroundColor: SKColor -> elements: Element list -> Scene
-    /// Create a rectangle element.
-    val rect: x: float32 -> y: float32 -> w: float32 -> h: float32 -> paint: Paint -> Element
-    /// Create an ellipse element.
-    val ellipse: cx: float32 -> cy: float32 -> rx: float32 -> ry: float32 -> paint: Paint -> Element
-    /// Create a circle element (convenience for equal-radius ellipse).
-    val circle: cx: float32 -> cy: float32 -> r: float32 -> paint: Paint -> Element
-    /// Create a line element.
-    val line: x1: float32 -> y1: float32 -> x2: float32 -> y2: float32 -> paint: Paint -> Element
-    /// Create a text element.
-    val text: content: string -> x: float32 -> y: float32 -> fontSize: float32 -> paint: Paint -> Element
-    /// Create an image element.
-    val image: bitmap: SKBitmap -> x: float32 -> y: float32 -> w: float32 -> h: float32 -> paint: Paint -> Element
-    /// Create a path element.
-    val path: commands: PathCommand list -> paint: Paint -> Element
-    /// Create a group with optional transform and paint.
-    val group: transform: Transform option -> paint: Paint option -> children: Element list -> Element
-    /// Create a group with a clip region.
-    val groupWithClip: transform: Transform option -> paint: Paint option -> clip: Clip -> children: Element list -> Element
-    /// Create a translated group.
-    val translate: x: float32 -> y: float32 -> children: Element list -> Element
-    /// Create a rotated group.
-    val rotate: degrees: float32 -> cx: float32 -> cy: float32 -> children: Element list -> Element
-    /// Create a scaled group.
-    val scale: sx: float32 -> sy: float32 -> children: Element list -> Element
-    /// Create a points element.
+
+    // New element constructors
     val points: pts: SKPoint[] -> mode: PointMode -> paint: Paint -> Element
-    /// Create a vertices element.
     val vertices: positions: SKPoint[] -> colors: SKColor[] -> mode: VertexMode -> paint: Paint -> Element
-    /// Create an arc element.
     val arc: rect: SKRect -> startAngle: float32 -> sweepAngle: float32 -> useCenter: bool -> paint: Paint -> Element
-    /// Create a picture element.
     val picture: pic: SKPicture -> transform: Transform option -> Element
-    /// Measure text bounds for a string with given font configuration.
+    val groupWithClip: transform: Transform option -> paint: Paint option -> clip: Clip -> children: Element list -> Element
+
+    // Utility functions
     val measureText: text: string -> fontSize: float32 -> font: FontSpec option -> SKRect
-    /// Combine two paths using a boolean operation.
+    val defaultFont: FontSpec
+
+    // Path operations
     val combinePaths: op: PathOp -> path1: PathCommand list -> path2: PathCommand list -> PathCommand list
-    /// Measure total length of a path.
     val measurePath: commands: PathCommand list -> float32
-    /// Extract a segment of a path between start and stop distances.
     val extractPathSegment: commands: PathCommand list -> start: float32 -> stop: float32 -> PathCommand list
-    /// Create a path element with a specific fill type.
     val withFillType: fillType: PathFillType -> commands: PathCommand list -> paint: Paint -> Element
-    /// Create a region from a rectangle.
+
+    // Region utilities
     val createRegionFromRect: rect: SKRectI -> SKRegion
-    /// Create a region from a path with a clipping region.
     val createRegionFromPath: commands: PathCommand list -> clip: SKRegion -> SKRegion
-    /// Combine two regions using a boolean operation.
     val combineRegions: op: RegionOp -> region1: SKRegion -> region2: SKRegion -> SKRegion
-    /// Test if a region contains a point.
     val regionContains: region: SKRegion -> x: int -> y: int -> bool
-    /// Record elements into a reusable picture.
+
+    // Picture recording
     val recordPicture: bounds: SKRect -> elements: Element list -> SKPicture
+```
+
+### RegionOp (new DU for Scene module)
+
+```fsharp
+/// Region boolean operation.
+[<RequireQualifiedAccess>]
+type RegionOp = | Difference | Intersect | Union | Xor | ReverseDifference | Replace
+```
+
+## SceneRenderer.fsi — No Public API Changes
+
+SceneRenderer remains `module internal` with the same signature:
+
+```fsharp
+module internal SceneRenderer =
+    val render: scene: Scene -> canvas: SKCanvas -> unit
+```
+
+## Viewer.fsi — No Changes
+
+The Viewer API surface is unchanged. All new functionality is expressed through the Scene DSL types.
+
+## Surface Area Baseline Impact
+
+The `SurfaceAreaBaseline.txt` file must be updated to include all new types and Scene module functions listed above. The existing baseline is already out of date (callback API vs stream API) — this feature will update it to reflect the current + new API surface.

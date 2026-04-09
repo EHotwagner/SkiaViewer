@@ -2,14 +2,134 @@ SkiaViewer Public API Surface Area Baseline
 ============================================
 
 Types:
+  StrokeCap (RequireQualifiedAccess DU)
+    | Butt | Round | Square
+
+  StrokeJoin (RequireQualifiedAccess DU)
+    | Miter | Round | Bevel
+
+  BlendMode (RequireQualifiedAccess DU)
+    | Clear | Src | Dst | SrcOver | DstOver
+    | SrcIn | DstIn | SrcOut | DstOut
+    | SrcATop | DstATop | Xor | Plus | Modulate
+    | Screen | Overlay | Darken | Lighten
+    | ColorDodge | ColorBurn | HardLight | SoftLight
+    | Difference | Exclusion | Multiply
+    | Hue | Saturation | Color | Luminosity
+
+  TileMode (RequireQualifiedAccess DU)
+    | Clamp | Repeat | Mirror | Decal
+
+  FontSlant (RequireQualifiedAccess DU)
+    | Upright | Italic | Oblique
+
+  FontSpec (Record)
+    Family: string
+    Weight: int
+    Slant: FontSlant
+    Width: int
+
+  PathDirection (RequireQualifiedAccess DU)
+    | Clockwise | CounterClockwise
+
+  PathCommand (RequireQualifiedAccess DU)
+    | MoveTo | LineTo | QuadTo | CubicTo | ArcTo | Close
+    | AddRect | AddCircle | AddOval | AddRoundRect
+
+  Shader (RequireQualifiedAccess DU)
+    | LinearGradient | RadialGradient | SweepGradient | TwoPointConicalGradient
+    | PerlinNoiseFractalNoise | PerlinNoiseTurbulence | SolidColor | Image | Compose
+    | RuntimeEffect
+
+  TrimMode (RequireQualifiedAccess DU)
+    | Normal | Inverted
+
+  Path1DStyle (RequireQualifiedAccess DU)
+    | Translate | Rotate | Morph
+
+  PathEffect (RequireQualifiedAccess DU)
+    | Dash | Corner | Trim | Path1D | Compose | Sum
+
+  HighContrastInvertStyle (RequireQualifiedAccess DU)
+    | NoInvert | InvertBrightness | InvertLightness
+
+  ColorFilter (RequireQualifiedAccess DU)
+    | BlendMode | ColorMatrix | Compose | HighContrast | Lighting | LumaColor
+
+  BlurStyle (RequireQualifiedAccess DU)
+    | Normal | Solid | Outer | Inner
+
+  MaskFilter (RequireQualifiedAccess DU)
+    | Blur
+
+  ColorChannel (RequireQualifiedAccess DU)
+    | R | G | B | A
+
+  ImageFilter (RequireQualifiedAccess DU)
+    | Blur | DropShadow | Dilate | Erode | Offset | WithColorFilter
+    | Compose | Merge | DisplacementMap | MatrixConvolution
+
+  ClipOperation (RequireQualifiedAccess DU)
+    | Intersect | Difference
+
+  Clip (RequireQualifiedAccess DU)
+    | Rect | Path | Region
+
+  PointMode (RequireQualifiedAccess DU)
+    | Points | Lines | Polygon
+
+  VertexMode (RequireQualifiedAccess DU)
+    | Triangles | TriangleStrip | TriangleFan
+
+  PathOp (RequireQualifiedAccess DU)
+    | Difference | Intersect | Union | Xor | ReverseDifference
+
+  PathFillType (RequireQualifiedAccess DU)
+    | Winding | EvenOdd | InverseWinding | InverseEvenOdd
+
+  RegionOp (RequireQualifiedAccess DU)
+    | Difference | Intersect | Union | Xor | ReverseDifference | Replace
+
+  Transform3D (RequireQualifiedAccess DU)
+    | RotateX | RotateY | RotateZ | Translate | Camera | Compose
+
+  Paint (Record)
+    Fill: SKColor option
+    Stroke: SKColor option
+    StrokeWidth: float32
+    Opacity: float32
+    IsAntialias: bool
+    StrokeCap: StrokeCap
+    StrokeJoin: StrokeJoin
+    StrokeMiter: float32
+    BlendMode: BlendMode
+    Shader: Shader option
+    ColorFilter: ColorFilter option
+    MaskFilter: MaskFilter option
+    ImageFilter: ImageFilter option
+    PathEffect: PathEffect option
+    Font: FontSpec option
+
+  Transform (RequireQualifiedAccess DU)
+    | Translate | Rotate | Scale | Matrix | Compose | Perspective
+
+  Element (RequireQualifiedAccess DU)
+    | Rect | Ellipse | Line | Text | Image | Path | Group
+    | Points | Vertices | Arc | Picture | TextBlob
+
+  Scene (Record)
+    BackgroundColor: SKColor
+    Elements: Element list
+
+  InputEvent (RequireQualifiedAccess DU)
+    | KeyDown | KeyUp | MouseMove | MouseDown | MouseUp
+    | MouseScroll | WindowResize | FrameTick
+
   Backend (RequireQualifiedAccess DU)
-    | Vulkan
-    | GL
-    | Raster
+    | Vulkan | GL | Raster
 
   ImageFormat (RequireQualifiedAccess DU)
-    | Png
-    | Jpeg
+    | Png | Jpeg
 
   ViewerConfig (Record)
     Title: string
@@ -17,11 +137,6 @@ Types:
     Height: int
     TargetFps: int
     ClearColor: SKColor
-    OnRender: SKCanvas -> Vector2D<int> -> unit
-    OnResize: int -> int -> unit
-    OnKeyDown: Key -> unit
-    OnMouseScroll: float32 -> float32 -> float32 -> unit
-    OnMouseDrag: float32 -> float32 -> unit
     PreferredBackend: Backend option
 
   ViewerHandle (Sealed Class)
@@ -29,5 +144,50 @@ Types:
     member Screenshot: folder: string * ?format: ImageFormat -> Result<string, string>
 
 Modules:
+  Scene
+    val emptyPaint: Paint
+    val defaultFont: FontSpec
+    val fill: color: SKColor -> Paint
+    val stroke: color: SKColor -> width: float32 -> Paint
+    val fillStroke: fill: SKColor -> stroke: SKColor -> strokeWidth: float32 -> Paint
+    val withOpacity: opacity: float32 -> paint: Paint -> Paint
+    val withStrokeCap: cap: StrokeCap -> paint: Paint -> Paint
+    val withStrokeJoin: join: StrokeJoin -> paint: Paint -> Paint
+    val withBlendMode: mode: BlendMode -> paint: Paint -> Paint
+    val withShader: shader: Shader -> paint: Paint -> Paint
+    val withColorFilter: filter: ColorFilter -> paint: Paint -> Paint
+    val withMaskFilter: filter: MaskFilter -> paint: Paint -> Paint
+    val withImageFilter: filter: ImageFilter -> paint: Paint -> Paint
+    val withPathEffect: effect: PathEffect -> paint: Paint -> Paint
+    val withFont: font: FontSpec -> paint: Paint -> Paint
+    val empty: backgroundColor: SKColor -> Scene
+    val create: backgroundColor: SKColor -> elements: Element list -> Scene
+    val rect: x: float32 -> y: float32 -> w: float32 -> h: float32 -> paint: Paint -> Element
+    val ellipse: cx: float32 -> cy: float32 -> rx: float32 -> ry: float32 -> paint: Paint -> Element
+    val circle: cx: float32 -> cy: float32 -> r: float32 -> paint: Paint -> Element
+    val line: x1: float32 -> y1: float32 -> x2: float32 -> y2: float32 -> paint: Paint -> Element
+    val text: content: string -> x: float32 -> y: float32 -> fontSize: float32 -> paint: Paint -> Element
+    val image: bitmap: SKBitmap -> x: float32 -> y: float32 -> w: float32 -> h: float32 -> paint: Paint -> Element
+    val path: commands: PathCommand list -> paint: Paint -> Element
+    val group: transform: Transform option -> paint: Paint option -> children: Element list -> Element
+    val groupWithClip: transform: Transform option -> paint: Paint option -> clip: Clip -> children: Element list -> Element
+    val translate: x: float32 -> y: float32 -> children: Element list -> Element
+    val rotate: degrees: float32 -> cx: float32 -> cy: float32 -> children: Element list -> Element
+    val scale: sx: float32 -> sy: float32 -> children: Element list -> Element
+    val points: pts: SKPoint[] -> mode: PointMode -> paint: Paint -> Element
+    val vertices: positions: SKPoint[] -> colors: SKColor[] -> mode: VertexMode -> paint: Paint -> Element
+    val arc: rect: SKRect -> startAngle: float32 -> sweepAngle: float32 -> useCenter: bool -> paint: Paint -> Element
+    val picture: pic: SKPicture -> transform: Transform option -> Element
+    val measureText: text: string -> fontSize: float32 -> font: FontSpec option -> SKRect
+    val combinePaths: op: PathOp -> path1: PathCommand list -> path2: PathCommand list -> PathCommand list
+    val measurePath: commands: PathCommand list -> float32
+    val extractPathSegment: commands: PathCommand list -> start: float32 -> stop: float32 -> PathCommand list
+    val withFillType: fillType: PathFillType -> commands: PathCommand list -> paint: Paint -> Element
+    val createRegionFromRect: rect: SKRectI -> SKRegion
+    val createRegionFromPath: commands: PathCommand list -> clip: SKRegion -> SKRegion
+    val combineRegions: op: RegionOp -> region1: SKRegion -> region2: SKRegion -> SKRegion
+    val regionContains: region: SKRegion -> x: int -> y: int -> bool
+    val recordPicture: bounds: SKRect -> elements: Element list -> SKPicture
+
   Viewer
-    val run: config: ViewerConfig -> ViewerHandle
+    val run: config: ViewerConfig -> scenes: IObservable<Scene> -> ViewerHandle * IObservable<InputEvent>

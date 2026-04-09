@@ -27,9 +27,9 @@ tests/
 F# on .NET 10.0: Follow standard conventions
 
 ## Recent Changes
+- 005-skia-api-coverage: Added F# on .NET 10.0 + SkiaSharp 2.88.6, Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, Silk.NET.Vulkan 2.22.0
 - 004-perf-test-suite: Added F# on .NET 10.0 + SkiaViewer (project reference), SkiaSharp 2.88.6, Silk.NET 2.22.0 (Windowing, OpenGL, Input, Vulkan)
 - 003-declarative-scene-dsl: Added F# on .NET 10.0 + SkiaSharp 2.88.6, Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Input 2.22.0, Silk.NET.Vulkan 2.22.0
-- 002-screenshot-function: Added F# on .NET 10.0 + SkiaSharp 2.88.6, Silk.NET.Windowing 2.22.0, Silk.NET.OpenGL 2.22.0, Silk.NET.Vulkan 2.22.0
 
 
 <!-- MANUAL ADDITIONS START -->
