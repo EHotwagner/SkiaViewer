@@ -5,7 +5,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <IsPackable>true</IsPackable>
     <PackageId>SkiaViewer.Charts</PackageId>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>0.1.1</VersionPrefix>
     <Authors>EHotwagner</Authors>
     <Description>Charting and DataGrid elements for SkiaViewer. Provides line, bar, pie, scatter, area, histogram, candlestick, and radar charts plus a sortable, scrollable DataGrid — all composing into the SkiaViewer declarative scene DSL.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
