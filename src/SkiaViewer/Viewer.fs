@@ -164,6 +164,9 @@ void main() {
         let mutable surfaceHeight = 0
         let mutable activeBackend = VulkanBackend.GlRasterActive
 
+        // Cached renderer for group-level scene diffing
+        let renderCache = new RenderCache(2)
+
         // Scene stream subscription holder
         let mutable sceneSubscription: IDisposable = null
 
@@ -212,6 +215,7 @@ void main() {
                                     old)
                             if not (obj.ReferenceEquals(oldSurface, null)) then
                                 oldSurface.Dispose()
+                            renderCache.Invalidate()
                             eprintfn "[Viewer] Surface created: %dx%d" fbSize.X fbSize.Y
                         else
                             let oldSurface =
@@ -386,7 +390,7 @@ void main() {
 
                                         match scene with
                                         | Some s ->
-                                            SceneRenderer.render s canvas
+                                            renderCache.Render s canvas
                                         | None ->
                                             canvas.Clear config.ClearColor
 
@@ -432,6 +436,9 @@ void main() {
                                     eprintfn "[Viewer] Render callback exception (%s): %s" (ex.GetType().Name) ex.Message))
 
                     win.add_Closing (fun _ ->
+                        // Dispose render cache
+                        (renderCache :> System.IDisposable).Dispose()
+
                         // Dispose scene subscription
                         if not (isNull sceneSubscription) then
                             sceneSubscription.Dispose()

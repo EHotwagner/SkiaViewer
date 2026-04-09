@@ -23,6 +23,8 @@
     <Compile Include="Scene.fs" />
     <Compile Include="SceneRenderer.fsi" />
     <Compile Include="SceneRenderer.fs" />
+    <Compile Include="CachedRenderer.fsi" />
+    <Compile Include="CachedRenderer.fs" />
     <Compile Include="Viewer.fsi" />
     <Compile Include="Viewer.fs" />
   </ItemGroup>

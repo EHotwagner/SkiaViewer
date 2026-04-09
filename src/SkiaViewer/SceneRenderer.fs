@@ -241,7 +241,7 @@ module internal SceneRenderer =
         let m = view.Matrix
         m
 
-    let rec private toMatrix (transform: Transform) : SKMatrix =
+    let rec toMatrix (transform: Transform) : SKMatrix =
         match transform with
         | Transform.Translate(x, y) ->
             SKMatrix.CreateTranslation(x, y)
@@ -359,7 +359,7 @@ module internal SceneRenderer =
             drawFn skPaint
         | None -> ()
 
-    let private applyClip (canvas: SKCanvas) (clip: Clip) =
+    let applyClip (canvas: SKCanvas) (clip: Clip) =
         match clip with
         | Clip.Rect(rect, op, antialias) ->
             canvas.ClipRect(rect, toSKClipOperation op, antialias)
@@ -480,7 +480,10 @@ module internal SceneRenderer =
                 applyFontToPaint font skPaint
                 canvas.DrawText(text, position.X, position.Y, skPaint)
 
+    let renderElements (elements: Element list) (canvas: SKCanvas) =
+        for element in elements do
+            renderElement canvas element
+
     let render (scene: Scene) (canvas: SKCanvas) =
         canvas.Clear(scene.BackgroundColor)
-        for element in scene.Elements do
-            renderElement canvas element
+        renderElements scene.Elements canvas
