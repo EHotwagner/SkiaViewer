@@ -1,5 +1,6 @@
 /// Example: Screenshot Capture
-/// Demonstrates capturing screenshots in PNG and JPEG formats.
+/// Demonstrates capturing screenshots in PNG and JPEG formats
+/// using the declarative scene API.
 ///
 /// Run: dotnet fsi scripts/examples/01-screenshot.fsx
 
@@ -9,23 +10,19 @@ open Prelude
 open System
 open System.Threading
 open SkiaSharp
+open SkiaViewer
 
-// Create a viewer that draws a colorful scene
-let config =
-    defaultConfig (fun canvas fbSize ->
-        use bgPaint = new SKPaint(Color = SKColors.DarkSlateBlue)
-        canvas.DrawRect(0.0f, 0.0f, float32 fbSize.X, float32 fbSize.Y, bgPaint)
+// Create a colorful scene
+let scene =
+    Scene.create SKColors.DarkSlateBlue [
+        Scene.rect 50f 50f 200f 100f (Scene.fill SKColors.Coral)
+        Scene.circle 400f 200f 80f (Scene.fill SKColors.LimeGreen)
+        Scene.text "SkiaViewer Screenshot Demo" 50f 350f 32f (Scene.fill SKColors.White)
+        Scene.line 50f 400f 500f 400f (Scene.stroke SKColors.Gold 2f)
+    ]
 
-        use rectPaint = new SKPaint(Color = SKColors.Coral, IsAntialias = true)
-        canvas.DrawRect(50.0f, 50.0f, 200.0f, 100.0f, rectPaint)
-
-        use circlePaint = new SKPaint(Color = SKColors.LimeGreen, IsAntialias = true)
-        canvas.DrawCircle(400.0f, 200.0f, 80.0f, circlePaint)
-
-        use textPaint = new SKPaint(Color = SKColors.White, TextSize = 32.0f, IsAntialias = true)
-        canvas.DrawText("SkiaViewer Screenshot Demo", 50.0f, 350.0f, textPaint))
-
-use viewer = SkiaViewer.Viewer.run config
+let (viewer, _inputs) = Viewer.run defaultConfig (singleScene scene)
+use viewer = viewer
 Thread.Sleep(1000) // Wait for rendering to start
 
 let outputDir = "/tmp/skiaviewer-examples"

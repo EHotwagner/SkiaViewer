@@ -6,6 +6,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="SceneTests.fs" />
+    <Compile Include="SceneRendererTests.fs" />
     <Compile Include="ViewerTests.fs" />
   </ItemGroup>
 

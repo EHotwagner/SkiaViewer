@@ -12,11 +12,31 @@
 open System
 open System.Threading
 open SkiaSharp
-open Silk.NET.Maths
 open SkiaViewer
 
+/// Default viewer config with sensible defaults.
+let defaultConfig : ViewerConfig =
+    { Title = "SkiaViewer"
+      Width = 800
+      Height = 600
+      TargetFps = 60
+      ClearColor = SKColors.CornflowerBlue
+      PreferredBackend = None }
+
+/// Create an empty scene with the given background color.
+let emptyScene (color: SKColor) = Scene.empty color
+
+/// Create a simple scene with elements on a black background.
+let simpleScene (elements: Element list) = Scene.create SKColors.Black elements
+
+/// Wrap a single scene as an observable that emits once.
+let singleScene (scene: Scene) : IObservable<Scene> =
+    { new IObservable<Scene> with
+        member _.Subscribe(observer) =
+            observer.OnNext(scene)
+            { new IDisposable with member _.Dispose() = () } }
+
 /// Take a screenshot of a running viewer and save it to the specified folder.
-/// Returns the file path on success.
 let screenshot (viewer: ViewerHandle) (folder: string) =
     viewer.Screenshot(folder)
 
@@ -24,18 +44,4 @@ let screenshot (viewer: ViewerHandle) (folder: string) =
 let screenshotJpeg (viewer: ViewerHandle) (folder: string) =
     viewer.Screenshot(folder, ImageFormat.Jpeg)
 
-/// Create a default viewer config with a custom render callback.
-let defaultConfig (onRender: SKCanvas -> Vector2D<int> -> unit) : ViewerConfig =
-    { Title = "SkiaViewer"
-      Width = 800
-      Height = 600
-      TargetFps = 60
-      ClearColor = SKColors.CornflowerBlue
-      OnRender = onRender
-      OnResize = fun _ _ -> ()
-      OnKeyDown = fun _ -> ()
-      OnMouseScroll = fun _ _ _ -> ()
-      OnMouseDrag = fun _ _ -> ()
-      PreferredBackend = None }
-
-printfn "SkiaViewer prelude loaded. Use 'defaultConfig', 'screenshot', 'screenshotJpeg'."
+printfn "SkiaViewer prelude loaded. Use 'defaultConfig', 'emptyScene', 'simpleScene', 'singleScene', 'screenshot', 'screenshotJpeg'."

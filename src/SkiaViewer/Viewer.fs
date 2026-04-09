@@ -3,10 +3,8 @@ namespace SkiaViewer
 /// <namespacedoc>
 /// <summary>
 /// The SkiaViewer namespace provides a hardware-accelerated 2D rendering viewer
-/// that combines Silk.NET windowing with SkiaSharp drawing. The primary rendering
-/// path uses a Vulkan GPU-backed GRContext for accelerated drawing with MSAA support,
-/// with automatic fallback to CPU raster rendering on systems without Vulkan.
-/// The viewer runs on a background thread with frame-level exception recovery.
+/// that combines Silk.NET windowing with SkiaSharp drawing. The viewer accepts
+/// a stream of declarative Scene values and produces a stream of InputEvent values.
 /// </summary>
 /// </namespacedoc>
 module internal NamespaceDoc = ()
@@ -39,11 +37,6 @@ type ViewerConfig =
       Height: int
       TargetFps: int
       ClearColor: SKColor
-      OnRender: SKCanvas -> Vector2D<int> -> unit
-      OnResize: int -> int -> unit
-      OnKeyDown: Key -> unit
-      OnMouseScroll: float32 -> float32 -> float32 -> unit
-      OnMouseDrag: float32 -> float32 -> unit
       PreferredBackend: Backend option }
 
 [<Sealed>]
@@ -65,7 +58,6 @@ type ViewerHandle
         else
 
         try
-            // Snapshot the surface under lock
             let image =
                 lock surfaceLock (fun () ->
                     let surf = getSurface ()
@@ -74,7 +66,6 @@ type ViewerHandle
                     elif getWidth () <= 0 || getHeight () <= 0 then
                         None
                     else
-                        // For Vulkan, flush GPU work before snapshot
                         match getBackend () with
                         | VulkanBackend.VulkanActive state ->
                             state.GRContext.Flush()
@@ -84,7 +75,6 @@ type ViewerHandle
                         let snapshot = surf.Snapshot()
                         if isNull snapshot then None
                         else
-                            // For Vulkan-backed images, read pixels to CPU
                             match getBackend () with
                             | VulkanBackend.VulkanActive _ ->
                                 let info = SKImageInfo(getWidth (), getHeight (), SKColorType.Rgba8888, SKAlphaType.Premul)
@@ -155,17 +145,27 @@ void main() {
 
     let private platformRegistered = lazy (Silk.NET.Windowing.Glfw.GlfwWindowing.RegisterPlatform())
 
-    let run (config: ViewerConfig) : ViewerHandle =
+    let run (config: ViewerConfig) (scenes: IObservable<Scene>) : ViewerHandle * IObservable<InputEvent> =
         let mutable windowRef: IWindow option = None
         let surfaceLock = obj ()
         let mutable shutdownRequested = false
         let windowCompleted = new ManualResetEventSlim(false)
+
+        // Input event publishing via F# Event<T> (implements IObservable<T>)
+        let inputEvent = Event<InputEvent>()
+
+        // Latest scene — atomically swapped from scene stream, read each frame
+        let mutable latestScene: Scene option = None
+        let sceneLock = obj ()
 
         // Shared mutable state — accessed from render thread and ViewerHandle
         let mutable surface: SKSurface = Unchecked.defaultof<_>
         let mutable surfaceWidth = 0
         let mutable surfaceHeight = 0
         let mutable activeBackend = VulkanBackend.GlRasterActive
+
+        // Scene stream subscription holder
+        let mutable sceneSubscription: IDisposable = null
 
         let thread =
             Thread(
@@ -249,7 +249,6 @@ void main() {
                         gl.DeleteShader(vs)
                         gl.DeleteShader(fs)
 
-                        // Fullscreen quad vertices: pos(x,y) + texcoord(u,v)
                         let bl = [| -1.0f; -1.0f; 0.0f; 1.0f |]
                         let br = [|  1.0f; -1.0f; 1.0f; 1.0f |]
                         let tr = [|  1.0f;  1.0f; 1.0f; 0.0f |]
@@ -277,12 +276,10 @@ void main() {
                     let mutable inputCtx: Silk.NET.Input.IInputContext option = None
 
                     win.add_Load (fun _ ->
-                        // Log preferred backend if set
                         match config.PreferredBackend with
                         | Some b -> eprintfn "[Viewer] Preferred backend: %A" b
                         | None -> ()
 
-                        // Attempt Vulkan init (unless GL explicitly preferred)
                         let tryVulkan =
                             match config.PreferredBackend with
                             | Some Backend.GL | Some Backend.Raster -> false
@@ -310,7 +307,6 @@ void main() {
                             activeBackend <- VulkanBackend.GlRasterActive
                             eprintfn "[Viewer] Backend selected: GL raster (fallback)"
 
-                        // GL setup is always needed (for texture display)
                         gl <- GL.GetApi(win)
                         gl.ClearColor(
                             float32 config.ClearColor.Red / 255.0f,
@@ -322,51 +318,56 @@ void main() {
                         recreateSurface ()
                         eprintfn "[Viewer] Window loaded, GL context ready"
 
+                        // Wire input events
                         let input = win.CreateInput()
                         inputCtx <- Some input
 
                         for kb in input.Keyboards do
-                            kb.add_KeyDown (fun _ key _ -> config.OnKeyDown key)
-
-                        let mutable dragging = false
-                        let mutable lastMouseX = 0.0f
-                        let mutable lastMouseY = 0.0f
+                            kb.add_KeyDown (fun _ key _ ->
+                                try inputEvent.Trigger(InputEvent.KeyDown key) with _ -> ())
+                            kb.add_KeyUp (fun _ key _ ->
+                                try inputEvent.Trigger(InputEvent.KeyUp key) with _ -> ())
 
                         for mouse in input.Mice do
                             mouse.add_Scroll (fun _ wheel ->
                                 let pos = mouse.Position
-                                config.OnMouseScroll wheel.Y pos.X pos.Y)
+                                try inputEvent.Trigger(InputEvent.MouseScroll(wheel.Y, pos.X, pos.Y)) with _ -> ())
 
                             mouse.add_MouseDown (fun _ btn ->
-                                if btn = MouseButton.Left then
-                                    dragging <- true
-                                    lastMouseX <- mouse.Position.X
-                                    lastMouseY <- mouse.Position.Y)
+                                let pos = mouse.Position
+                                try inputEvent.Trigger(InputEvent.MouseDown(btn, pos.X, pos.Y)) with _ -> ())
 
                             mouse.add_MouseUp (fun _ btn ->
-                                if btn = MouseButton.Left then
-                                    dragging <- false)
+                                let pos = mouse.Position
+                                try inputEvent.Trigger(InputEvent.MouseUp(btn, pos.X, pos.Y)) with _ -> ())
 
                             mouse.add_MouseMove (fun _ pos ->
-                                if dragging then
-                                    let dx = pos.X - lastMouseX
-                                    let dy = pos.Y - lastMouseY
-                                    lastMouseX <- pos.X
-                                    lastMouseY <- pos.Y
-                                    config.OnMouseDrag dx dy))
+                                try inputEvent.Trigger(InputEvent.MouseMove(pos.X, pos.Y)) with _ -> ())
+
+                        // Subscribe to scene stream
+                        sceneSubscription <-
+                            scenes.Subscribe(
+                                { new IObserver<Scene> with
+                                    member _.OnNext(scene) =
+                                        lock sceneLock (fun () -> latestScene <- Some scene)
+                                    member _.OnError(ex) =
+                                        eprintfn "[Viewer] Scene stream error: %s — keeping last valid scene" ex.Message
+                                    member _.OnCompleted() =
+                                        eprintfn "[Viewer] Scene stream completed — keeping last scene" }))
 
                     win.add_FramebufferResize (fun size ->
                         recreateSurface ()
-                        config.OnResize size.X size.Y)
+                        try inputEvent.Trigger(InputEvent.WindowResize(size.X, size.Y)) with _ -> ())
 
-                    // Cross-thread shutdown: check flag from the window thread
                     win.add_Update (fun _ ->
                         if shutdownRequested then
                             eprintfn "[Viewer] Shutdown requested, closing window"
                             win.Close())
 
-                    win.add_Render (fun _ ->
-                        // Snapshot surface state under lock
+                    win.add_Render (fun delta ->
+                        // Emit FrameTick at start of frame
+                        try inputEvent.Trigger(InputEvent.FrameTick(delta)) with _ -> ()
+
                         let snapSurface, snapWidth, snapHeight =
                             lock surfaceLock (fun () -> surface, surfaceWidth, surfaceHeight)
 
@@ -375,21 +376,22 @@ void main() {
                                 let canvas = snapSurface.Canvas
 
                                 if not (obj.ReferenceEquals(canvas, null)) then
-                                    canvas.Clear config.ClearColor
-                                    let fbSize = win.FramebufferSize
-                                    config.OnRender canvas fbSize
+                                    // Get latest scene or use default
+                                    let scene =
+                                        lock sceneLock (fun () -> latestScene)
+
+                                    match scene with
+                                    | Some s ->
+                                        SceneRenderer.render s canvas
+                                    | None ->
+                                        canvas.Clear config.ClearColor
+
                                     canvas.Flush()
 
-                                    // Upload pixels to GL texture and draw fullscreen quad.
-                                    // GPU-backed (Vulkan) surfaces require Snapshot + ReadPixels
-                                    // for GPU→CPU transfer; raster surfaces use PeekPixels.
                                     match activeBackend with
                                     | VulkanBackend.VulkanActive state ->
-                                        // Flush and synchronously submit all GPU work
                                         state.GRContext.Flush()
                                         state.GRContext.Submit(true)
-                                        // Snapshot creates a texture-backed image, then
-                                        // ReadPixels forces the GPU→CPU readback
                                         use img = snapSurface.Snapshot()
                                         if not (isNull img) then
                                             let info = SKImageInfo(snapWidth, snapHeight, SKColorType.Rgba8888, SKAlphaType.Premul)
@@ -426,6 +428,11 @@ void main() {
                                 eprintfn "[Viewer] Render callback exception (%s): %s" (ex.GetType().Name) ex.Message)
 
                     win.add_Closing (fun _ ->
+                        // Dispose scene subscription
+                        if not (isNull sceneSubscription) then
+                            sceneSubscription.Dispose()
+                            sceneSubscription <- null
+
                         match inputCtx with
                         | Some ctx ->
                             ctx.Dispose()
@@ -440,13 +447,11 @@ void main() {
                         if not (obj.ReferenceEquals(oldSurface, null)) then
                             oldSurface.Dispose()
 
-                        // Clean up backend-specific resources
                         match activeBackend with
                         | VulkanBackend.VulkanActive state ->
                             VulkanBackend.cleanup state
                         | VulkanBackend.GlRasterActive -> ()
 
-                        // Clean up GL resources
                         if shaderProgram <> 0u then
                             gl.DeleteProgram(shaderProgram)
                         if vao <> 0u then
@@ -470,16 +475,18 @@ void main() {
 
         let stop () =
             shutdownRequested <- true
-            // Wait for the window thread to finish with a timeout
             if not (windowCompleted.Wait(TimeSpan.FromSeconds(5.0))) then
                 eprintfn "[Viewer] Warning: window thread did not complete within 5s timeout"
             windowRef <- None
 
-        new ViewerHandle(
-            stop,
-            surfaceLock,
-            (fun () -> surface),
-            (fun () -> surfaceWidth),
-            (fun () -> surfaceHeight),
-            (fun () -> activeBackend),
-            (fun () -> shutdownRequested))
+        let handle =
+            new ViewerHandle(
+                stop,
+                surfaceLock,
+                (fun () -> surface),
+                (fun () -> surfaceWidth),
+                (fun () -> surfaceHeight),
+                (fun () -> activeBackend),
+                (fun () -> shutdownRequested))
+
+        (handle, inputEvent.Publish :> IObservable<InputEvent>)
