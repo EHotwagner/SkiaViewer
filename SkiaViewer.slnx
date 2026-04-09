@@ -3,6 +3,7 @@
     <Project Path="src/SkiaViewer/SkiaViewer.fsproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SkiaViewer.PerfTests/SkiaViewer.PerfTests.fsproj" />
     <Project Path="tests/SkiaViewer.Tests/SkiaViewer.Tests.fsproj" />
   </Folder>
 </Solution>

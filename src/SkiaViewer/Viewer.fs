@@ -368,37 +368,52 @@ void main() {
                         // Emit FrameTick at start of frame
                         try inputEvent.Trigger(InputEvent.FrameTick(delta)) with _ -> ()
 
-                        let snapSurface, snapWidth, snapHeight =
-                            lock surfaceLock (fun () -> surface, surfaceWidth, surfaceHeight)
+                        // Hold surfaceLock for the entire render + GPU readback cycle
+                        // to prevent concurrent Vulkan GRContext access from Screenshot.
+                        lock surfaceLock (fun () ->
+                            let snapSurface = surface
+                            let snapWidth = surfaceWidth
+                            let snapHeight = surfaceHeight
 
-                        if not (obj.ReferenceEquals(snapSurface, null)) then
-                            try
-                                let canvas = snapSurface.Canvas
+                            if not (obj.ReferenceEquals(snapSurface, null)) then
+                                try
+                                    let canvas = snapSurface.Canvas
 
-                                if not (obj.ReferenceEquals(canvas, null)) then
-                                    // Get latest scene or use default
-                                    let scene =
-                                        lock sceneLock (fun () -> latestScene)
+                                    if not (obj.ReferenceEquals(canvas, null)) then
+                                        // Get latest scene or use default
+                                        let scene =
+                                            lock sceneLock (fun () -> latestScene)
 
-                                    match scene with
-                                    | Some s ->
-                                        SceneRenderer.render s canvas
-                                    | None ->
-                                        canvas.Clear config.ClearColor
+                                        match scene with
+                                        | Some s ->
+                                            SceneRenderer.render s canvas
+                                        | None ->
+                                            canvas.Clear config.ClearColor
 
-                                    canvas.Flush()
+                                        canvas.Flush()
 
-                                    match activeBackend with
-                                    | VulkanBackend.VulkanActive state ->
-                                        state.GRContext.Flush()
-                                        state.GRContext.Submit(true)
-                                        use img = snapSurface.Snapshot()
-                                        if not (isNull img) then
-                                            let info = SKImageInfo(snapWidth, snapHeight, SKColorType.Rgba8888, SKAlphaType.Premul)
-                                            use readbackBitmap = new SKBitmap(info)
-                                            let ok = img.ReadPixels(info, readbackBitmap.GetPixels(), info.RowBytes, 0, 0)
-                                            if ok then
-                                                let pixels = readbackBitmap.GetPixels()
+                                        match activeBackend with
+                                        | VulkanBackend.VulkanActive state ->
+                                            state.GRContext.Flush()
+                                            state.GRContext.Submit(true)
+                                            use img = snapSurface.Snapshot()
+                                            if not (isNull img) then
+                                                let info = SKImageInfo(snapWidth, snapHeight, SKColorType.Rgba8888, SKAlphaType.Premul)
+                                                use readbackBitmap = new SKBitmap(info)
+                                                let ok = img.ReadPixels(info, readbackBitmap.GetPixels(), info.RowBytes, 0, 0)
+                                                if ok then
+                                                    let pixels = readbackBitmap.GetPixels()
+                                                    gl.BindTexture(GLEnum.Texture2D, texture)
+                                                    gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
+                                                    gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
+                                                    gl.Clear(uint32 GLEnum.ColorBufferBit)
+                                                    gl.UseProgram(shaderProgram)
+                                                    gl.BindVertexArray(vao)
+                                                    gl.DrawArrays(GLEnum.Triangles, 0, 6u)
+                                        | VulkanBackend.GlRasterActive ->
+                                            let pixmap = snapSurface.PeekPixels()
+                                            if not (obj.ReferenceEquals(pixmap, null)) then
+                                                let pixels = pixmap.GetPixels()
                                                 gl.BindTexture(GLEnum.Texture2D, texture)
                                                 gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
                                                 gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
@@ -406,26 +421,15 @@ void main() {
                                                 gl.UseProgram(shaderProgram)
                                                 gl.BindVertexArray(vao)
                                                 gl.DrawArrays(GLEnum.Triangles, 0, 6u)
-                                    | VulkanBackend.GlRasterActive ->
-                                        let pixmap = snapSurface.PeekPixels()
-                                        if not (obj.ReferenceEquals(pixmap, null)) then
-                                            let pixels = pixmap.GetPixels()
-                                            gl.BindTexture(GLEnum.Texture2D, texture)
-                                            gl.TexImage2D(GLEnum.Texture2D, 0, int GLEnum.Rgba8, uint32 snapWidth, uint32 snapHeight, 0, GLEnum.Rgba, GLEnum.UnsignedByte, pixels.ToPointer())
-                                            gl.Viewport(0, 0, uint32 snapWidth, uint32 snapHeight)
-                                            gl.Clear(uint32 GLEnum.ColorBufferBit)
-                                            gl.UseProgram(shaderProgram)
-                                            gl.BindVertexArray(vao)
-                                            gl.DrawArrays(GLEnum.Triangles, 0, 6u)
-                            with
-                            | :? ObjectDisposedException as ex ->
-                                eprintfn "[Viewer] Render warning (ObjectDisposed): %s" ex.Message
-                            | :? NullReferenceException as ex ->
-                                eprintfn "[Viewer] Render warning (NullReference): %s" ex.Message
-                            | :? System.ArgumentNullException as ex ->
-                                eprintfn "[Viewer] Render warning (ArgumentNull): %s" ex.Message
-                            | ex ->
-                                eprintfn "[Viewer] Render callback exception (%s): %s" (ex.GetType().Name) ex.Message)
+                                with
+                                | :? ObjectDisposedException as ex ->
+                                    eprintfn "[Viewer] Render warning (ObjectDisposed): %s" ex.Message
+                                | :? NullReferenceException as ex ->
+                                    eprintfn "[Viewer] Render warning (NullReference): %s" ex.Message
+                                | :? System.ArgumentNullException as ex ->
+                                    eprintfn "[Viewer] Render warning (ArgumentNull): %s" ex.Message
+                                | ex ->
+                                    eprintfn "[Viewer] Render callback exception (%s): %s" (ex.GetType().Name) ex.Message))
 
                     win.add_Closing (fun _ ->
                         // Dispose scene subscription

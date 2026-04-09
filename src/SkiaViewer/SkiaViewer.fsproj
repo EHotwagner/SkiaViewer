@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="SkiaViewer.Tests" />
+    <InternalsVisibleTo Include="SkiaViewer.PerfTests" />
   </ItemGroup>
 
   <ItemGroup>
