@@ -71,6 +71,41 @@ Then open http://localhost:8901.
 - **Thread-safe lifecycle** — cross-thread shutdown with `IDisposable`, 5-second timeout
 - **Frame-level recovery** — catches `ObjectDisposedException`, `NullReferenceException`, `ArgumentNullException` per frame
 
+### SkiaViewer.Charts
+
+The companion `SkiaViewer.Charts` library adds data visualization elements that compose directly into the scene DSL:
+
+```
+dotnet add package SkiaViewer.Charts
+```
+
+- **Line chart** — multi-series with auto-scaled axes, grid lines, and legends
+- **Bar chart** — grouped or stacked categorical bars
+- **Pie / donut chart** — proportional arc slices with optional donut hole
+- **Scatter plot** — individual data points with per-series styling
+- **Area chart** — filled regions under data lines with stacking
+- **Histogram** — frequency distribution with configurable bin count
+- **Candlestick chart** — OHLC financial data with up/down coloring
+- **Radar / spider chart** — multi-variable comparison on radial axes
+- **DataGrid** — sortable, scrollable tabular data with text, numeric, and boolean columns
+
+```fsharp
+open SkiaViewer.Charts
+
+let chart =
+    LineChart.lineChart (LineChart.defaultConfig 600f 400f)
+        [ { Name = "Sales"; Points = [ { X = 1.0; Y = 10.0 }; { X = 2.0; Y = 25.0 } ] } ]
+
+let grid =
+    DataGrid.dataGrid (DataGrid.defaultConfig 500f 300f)
+        { Columns = [ DataGrid.textColumn "Name"; DataGrid.numericColumn "Score" ]
+          Rows = [ [ CellValue.TextValue "Alice"; CellValue.NumericValue 95.0 ] ] }
+
+let scene = Scene.create SKColors.White [ chart; grid ]
+```
+
+See [Charting](https://EHotwagner.github.io/SkiaViewer/charting.html) and [DataGrid](https://EHotwagner.github.io/SkiaViewer/datagrid.html) for full documentation.
+
 ## Known Issues
 
 See [Known Issues](https://EHotwagner.github.io/SkiaViewer/known-issues.html) for current limitations.

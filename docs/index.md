@@ -25,6 +25,8 @@ Learn how to use the full API surface:
 - [Shaders & Effects](shaders-and-effects.html) — gradients, noise, color/mask/image filters, blend modes, path effects
 - [Input Handling](input-handling.html) — keyboard, mouse, and window events via reactive streams
 - [Screenshots](screenshots.html) — capture rendered frames to PNG or JPEG
+- [Charting](charting.html) — line, bar, pie, scatter, area, histogram, candlestick, and radar charts
+- [DataGrid](datagrid.html) — sortable, scrollable tabular data with typed columns
 
 ## Design
 
