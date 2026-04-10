@@ -4,7 +4,24 @@
 
 # SkiaViewer
 
-A hardened Silk.NET + SkiaSharp OpenGL viewer for .NET 10.0. Renders SkiaSharp surfaces to an OpenGL-backed window via texture upload, with a declarative scene DSL, Vulkan GPU backend, thread-safe lifecycle management, cross-thread shutdown, and frame-level exception recovery.
+A hardened Silk.NET + SkiaSharp viewer for .NET 10.0. Renders SkiaSharp surfaces to Vulkan GPU or OpenGL-backed windows, with a declarative scene DSL, layout containers, graph visualization, charting, thread-safe lifecycle management, and frame-level exception recovery.
+
+https://github.com/EHotwagner/SkiaViewer/releases/download/v1.1.3/demo-reel.mp4
+
+<details>
+<summary>Demo reel scenes</summary>
+
+| Time | Scene |
+|------|-------|
+| 0-8s | Animated geometry burst with glowing particles and spinning shapes |
+| 8-18s | Shader showcase: radial, sweep, conical gradients + Perlin noise |
+| 18-26s | Full-screen SkSL plasma shader (GPU per-pixel computation) |
+| 26-38s | Live analytics dashboard: line, pie, bar, area, radar, scatter charts |
+| 38-46s | Scrolling DataGrid + animated candlestick OHLC chart |
+| 46-54s | DAG graph visualization, 3D perspective cards, drop shadows |
+| 54-60s | Grand finale with starburst and radial glow |
+
+</details>
 
 ## Installation
 
@@ -105,6 +122,42 @@ let scene = Scene.create SKColors.White [ chart; grid ]
 ```
 
 See [Charting](https://EHotwagner.github.io/SkiaViewer/charting.html) and [DataGrid](https://EHotwagner.github.io/SkiaViewer/datagrid.html) for full documentation.
+
+### SkiaViewer.Layout
+
+Layout containers and graph visualization that compose into the scene DSL:
+
+```
+dotnet add package SkiaViewer.Layout
+```
+
+- **HStack / VStack** — horizontal and vertical stacking with spacing, padding, and alignment
+- **Dock** — edge-docked layout (Top, Bottom, Left, Right, Fill)
+- **DAG visualization** — directed acyclic graphs with automatic Sugiyama layered layout via MSAGL
+- **Undirected graphs** — force-directed MDS layout with weighted edges and labels
+- **Cycle detection** — Kahn's algorithm validates DAGs before rendering
+- **Composition** — graph elements nest naturally inside layout containers
+
+```fsharp
+open SkiaViewer.Layout
+
+let page =
+    Layout.dock Defaults.dockConfig [
+        { Layout.dockChild DockPosition.Top header
+          with Sizing = { Defaults.sizing with DesiredHeight = Some 50f } }
+        Layout.dockChild DockPosition.Fill content
+    ] 800f 600f
+
+let dag =
+    { Config = Graph.defaultConfig GraphKind.Directed
+      Nodes = [ { Id = "A"; Label = "Start"; Style = None }
+                { Id = "B"; Label = "End"; Style = None } ]
+      Edges = [ { Source = "A"; Target = "B"; Weight = None; Label = None; Style = None } ] }
+
+match Graph.render dag 600f 400f with
+| Ok graphElement -> // use graphElement in any scene or layout
+| Error msg -> printfn "Validation error: %s" msg
+```
 
 ## Known Issues
 
