@@ -2,10 +2,12 @@
   <Folder Name="/src/">
     <Project Path="src/SkiaViewer/SkiaViewer.fsproj" />
     <Project Path="src/SkiaViewer.Charts/SkiaViewer.Charts.fsproj" />
+    <Project Path="src/SkiaViewer.Layout/SkiaViewer.Layout.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SkiaViewer.PerfTests/SkiaViewer.PerfTests.fsproj" />
     <Project Path="tests/SkiaViewer.Tests/SkiaViewer.Tests.fsproj" />
     <Project Path="tests/SkiaViewer.Charts.Tests/SkiaViewer.Charts.Tests.fsproj" />
+    <Project Path="tests/SkiaViewer.Layout.Tests/SkiaViewer.Layout.Tests.fsproj" />
   </Folder>
 </Solution>

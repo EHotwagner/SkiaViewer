@@ -7,8 +7,8 @@
 /// Or from FSI:
 ///   #load "scripts/prelude.fsx"
 
-#r "nuget: SkiaSharp, 2.88.6"
-#r "nuget: SkiaSharp.NativeAssets.Linux.NoDependencies, 2.88.6"
+#r "nuget: SkiaSharp, 3.119.2"
+#r "nuget: SkiaSharp.NativeAssets.Linux, 3.119.2"
 #r "nuget: Silk.NET.Windowing, 2.22.0"
 #r "nuget: Silk.NET.OpenGL, 2.22.0"
 #r "nuget: Silk.NET.Input, 2.22.0"

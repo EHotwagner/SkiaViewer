@@ -366,23 +366,30 @@ module Scene =
             | _ -> ()
         commands |> Seq.toList
 
+    let private defaultTypeface =
+        let fm = SKFontManager.Default
+        let families = fm.GetFontFamilies()
+        if families.Length > 0 then
+            SKTypeface.FromFamilyName(families.[0])
+        else
+            SKTypeface.CreateDefault()
+
     let measureText (text: string) (fontSize: float32) (font: FontSpec option) : SKRect =
-        use skPaint = new SKPaint()
-        skPaint.TextSize <- fontSize
-        match font with
-        | Some f ->
-            let slant =
-                match f.Slant with
-                | FontSlant.Upright -> SKFontStyleSlant.Upright
-                | FontSlant.Italic -> SKFontStyleSlant.Italic
-                | FontSlant.Oblique -> SKFontStyleSlant.Oblique
-            let style = new SKFontStyle(f.Weight, f.Width, slant)
-            use typeface = SKTypeface.FromFamilyName(f.Family, style)
-            if not (isNull typeface) then
-                skPaint.Typeface <- typeface
-        | None -> ()
+        let typeface =
+            match font with
+            | Some f when not (System.String.IsNullOrEmpty(f.Family)) ->
+                let slant =
+                    match f.Slant with
+                    | FontSlant.Upright -> SKFontStyleSlant.Upright
+                    | FontSlant.Italic -> SKFontStyleSlant.Italic
+                    | FontSlant.Oblique -> SKFontStyleSlant.Oblique
+                let style = new SKFontStyle(f.Weight, f.Width, slant)
+                let tf = SKTypeface.FromFamilyName(f.Family, style)
+                if isNull tf then defaultTypeface else tf
+            | _ -> defaultTypeface
+        use skFont = new SKFont(typeface, fontSize)
         let mutable bounds = SKRect()
-        skPaint.MeasureText(text, &bounds) |> ignore
+        skFont.MeasureText(text, &bounds) |> ignore
         bounds
 
     let combinePaths (op: PathOp) (path1: PathCommand list) (path2: PathCommand list) : PathCommand list =

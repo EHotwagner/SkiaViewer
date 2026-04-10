@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <IsPackable>true</IsPackable>
+    <PackageId>SkiaViewer.Layout</PackageId>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>EHotwagner</Authors>
+    <Description>Layout containers and graph visualization for SkiaViewer. Provides HStack, VStack, Dock layouts and DAG/undirected graph rendering with automatic layout via MSAGL — all composing into the SkiaViewer declarative scene DSL.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/EHotwagner/SkiaViewer</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SkiaViewer.Layout.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fsi" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Defaults.fsi" />
+    <Compile Include="Defaults.fs" />
+    <Compile Include="Layout.fsi" />
+    <Compile Include="Layout.fs" />
+    <Compile Include="GraphValidation.fsi" />
+    <Compile Include="GraphValidation.fs" />
+    <Compile Include="Graph.fsi" />
+    <Compile Include="Graph.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SkiaViewer/SkiaViewer.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Msagl" Version="1.1.6" />
+    <PackageReference Include="Microsoft.Msagl.Drawing" Version="1.1.6" />
+  </ItemGroup>
+
+</Project>

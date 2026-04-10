@@ -75,35 +75,21 @@ module internal SceneRenderer =
             let sk2 = toSKShader s2
             SKShader.CreateCompose(sk1, sk2, toSKBlendMode blendMode)
         | Shader.RuntimeEffect(source, uniforms) ->
-            let mutable errors = ""
-            let effect = SKRuntimeEffect.Create(source, &errors)
+            let (effect, errors) = SKRuntimeEffect.CreateShader(source)
             if isNull effect then
                 raise (InvalidOperationException($"SkSL compilation error: {errors}"))
-            // Build uniform data: pack float32 values in order of uniform declarations
-            let uniformBytes = Array.zeroCreate<byte> (int effect.UniformSize)
-            let mutable byteOffset = 0
-            for uniformName in effect.Uniforms do
-                let value =
-                    uniforms
-                    |> List.tryFind (fun (n, _) -> n = uniformName)
-                    |> Option.map snd
-                    |> Option.defaultValue 0f
-                let valueBytes = System.BitConverter.GetBytes(value)
-                if byteOffset + 4 <= uniformBytes.Length then
-                    System.Array.Copy(valueBytes, 0, uniformBytes, byteOffset, 4)
-                byteOffset <- byteOffset + 4
             let skUniforms = new SKRuntimeEffectUniforms(effect)
-            let mutable idx = 0
-            for uniformName in effect.Uniforms do
+            for child in effect.Children do
+                ignore child
+            for uName in effect.Uniforms do
                 let value =
                     uniforms
-                    |> List.tryFind (fun (n, _) -> n = uniformName)
+                    |> List.tryFind (fun (n, _) -> n = uName)
                     |> Option.map snd
                     |> Option.defaultValue 0f
-                skUniforms.[uniformName] <- value
-                idx <- idx + 1
+                skUniforms.[uName] <- value
             let skChildren = new SKRuntimeEffectChildren(effect)
-            effect.ToShader(false, skUniforms, skChildren)
+            effect.ToShader(skUniforms, skChildren)
 
     let private buildSKPath (commands: PathCommand list) =
         let skPath = new SKPath()
@@ -187,9 +173,9 @@ module internal SceneRenderer =
         | ImageFilter.DropShadow(dx, dy, sigmaX, sigmaY, color) ->
             SKImageFilter.CreateDropShadow(dx, dy, sigmaX, sigmaY, color)
         | ImageFilter.Dilate(radiusX, radiusY) ->
-            SKImageFilter.CreateDilate(radiusX, radiusY)
+            SKImageFilter.CreateDilate(float32 radiusX, float32 radiusY)
         | ImageFilter.Erode(radiusX, radiusY) ->
-            SKImageFilter.CreateErode(radiusX, radiusY)
+            SKImageFilter.CreateErode(float32 radiusX, float32 radiusY)
         | ImageFilter.Offset(dx, dy) ->
             SKImageFilter.CreateOffset(dx, dy)
         | ImageFilter.WithColorFilter(colorFilter) ->
@@ -227,19 +213,57 @@ module internal SceneRenderer =
         | VertexMode.TriangleStrip -> SKVertexMode.TriangleStrip
         | VertexMode.TriangleFan -> SKVertexMode.TriangleFan
 
+    /// Multiply two 4x4 matrices stored as float32[16] (row-major).
+    let private mul44 (a: float32[]) (b: float32[]) : float32[] =
+        let r = Array.zeroCreate<float32> 16
+        for i in 0..3 do
+            for j in 0..3 do
+                let mutable s = 0.0f
+                for k in 0..3 do
+                    s <- s + a.[i * 4 + k] * b.[k * 4 + j]
+                r.[i * 4 + j] <- s
+        r
+
+    let private identity44 () : float32[] =
+        [| 1f;0f;0f;0f; 0f;1f;0f;0f; 0f;0f;1f;0f; 0f;0f;0f;1f |]
+
+    /// Project a 4x4 matrix to a 3x3 SKMatrix (drop z row/column, keep perspective).
+    let private toSKMatrix3x3 (m: float32[]) : SKMatrix =
+        SKMatrix(m.[0], m.[1], m.[3],
+                 m.[4], m.[5], m.[7],
+                 m.[12], m.[13], m.[15])
+
     let private toSK3dMatrix (t3d: Transform3D) : SKMatrix =
-        let view = new SK3dView()
+        let mutable m = identity44 ()
         let rec apply (t: Transform3D) =
             match t with
-            | Transform3D.RotateX deg -> view.RotateXDegrees(deg)
-            | Transform3D.RotateY deg -> view.RotateYDegrees(deg)
-            | Transform3D.RotateZ deg -> view.RotateZDegrees(deg)
-            | Transform3D.Translate(x, y, z) -> view.Translate(x, y, z)
-            | Transform3D.Camera(x, y, z) -> view.Translate(x, y, z)
+            | Transform3D.RotateX deg ->
+                let rad = deg * float32 Math.PI / 180.0f
+                let c = float32 (Math.Cos(float rad))
+                let s = float32 (Math.Sin(float rad))
+                let rot = [| 1f;0f;0f;0f; 0f;c;-s;0f; 0f;s;c;0f; 0f;0f;0f;1f |]
+                m <- mul44 m rot
+            | Transform3D.RotateY deg ->
+                let rad = deg * float32 Math.PI / 180.0f
+                let c = float32 (Math.Cos(float rad))
+                let s = float32 (Math.Sin(float rad))
+                let rot = [| c;0f;s;0f; 0f;1f;0f;0f; -s;0f;c;0f; 0f;0f;0f;1f |]
+                m <- mul44 m rot
+            | Transform3D.RotateZ deg ->
+                let rad = deg * float32 Math.PI / 180.0f
+                let c = float32 (Math.Cos(float rad))
+                let s = float32 (Math.Sin(float rad))
+                let rot = [| c;-s;0f;0f; s;c;0f;0f; 0f;0f;1f;0f; 0f;0f;0f;1f |]
+                m <- mul44 m rot
+            | Transform3D.Translate(x, y, z) ->
+                let tr = [| 1f;0f;0f;x; 0f;1f;0f;y; 0f;0f;1f;z; 0f;0f;0f;1f |]
+                m <- mul44 m tr
+            | Transform3D.Camera(x, y, z) ->
+                let tr = [| 1f;0f;0f;x; 0f;1f;0f;y; 0f;0f;1f;z; 0f;0f;0f;1f |]
+                m <- mul44 m tr
             | Transform3D.Compose transforms -> transforms |> List.iter apply
         apply t3d
-        let m = view.Matrix
-        m
+        toSKMatrix3x3 m
 
     let rec toMatrix (transform: Transform) : SKMatrix =
         match transform with
@@ -257,18 +281,27 @@ module internal SceneRenderer =
         | Transform.Perspective t3d ->
             toSK3dMatrix t3d
 
-    let private applyFontToPaint (font: FontSpec option) (skPaint: SKPaint) =
+    let private defaultTypeface =
+        let fm = SKFontManager.Default
+        let families = fm.GetFontFamilies()
+        if families.Length > 0 then
+            SKTypeface.FromFamilyName(families.[0])
+        else
+            SKTypeface.CreateDefault()
+
+    let private makeSKFont (fontSize: float32) (font: FontSpec option) : SKFont =
         match font with
-        | Some f ->
+        | Some f when not (System.String.IsNullOrEmpty(f.Family)) ->
             let slant =
                 match f.Slant with
                 | FontSlant.Upright -> SKFontStyleSlant.Upright
                 | FontSlant.Italic -> SKFontStyleSlant.Italic
                 | FontSlant.Oblique -> SKFontStyleSlant.Oblique
             let typeface = SKTypeface.FromFamilyName(f.Family, f.Weight, f.Width, slant)
-            if not (isNull typeface) then
-                skPaint.Typeface <- typeface
-        | None -> ()
+            let resolvedTypeface = if isNull typeface then defaultTypeface else typeface
+            new SKFont(resolvedTypeface, fontSize)
+        | _ ->
+            new SKFont(defaultTypeface, fontSize)
 
     let private makeSKPaint (paint: Paint) (forStroke: bool) : SKPaint =
         let skPaint = new SKPaint()
@@ -333,9 +366,6 @@ module internal SceneRenderer =
         | Some effect -> skPaint.PathEffect <- toSKPathEffect effect
         | None -> ()
 
-        // Font
-        applyFontToPaint paint.Font skPaint
-
         skPaint
 
     let private drawWithPaint (paint: Paint) (canvas: SKCanvas) (drawFn: SKPaint -> unit) =
@@ -397,9 +427,8 @@ module internal SceneRenderer =
 
         | Element.Text(text, x, y, fontSize, paint) ->
             drawWithPaint paint canvas (fun skPaint ->
-                skPaint.TextSize <- fontSize
-                applyFontToPaint paint.Font skPaint
-                canvas.DrawText(text, x, y, skPaint))
+                use skFont = makeSKFont fontSize paint.Font
+                canvas.DrawText(text, x, y, SKTextAlign.Left, skFont, skPaint))
 
         | Element.Image(bitmap, x, y, w, h, paint) ->
             if isNull bitmap then
@@ -476,9 +505,8 @@ module internal SceneRenderer =
         | Element.TextBlob(runs, paint) ->
             use skPaint = makeSKPaint paint false
             for (text, position, fontSize, font) in runs do
-                skPaint.TextSize <- fontSize
-                applyFontToPaint font skPaint
-                canvas.DrawText(text, position.X, position.Y, skPaint)
+                use skFont = makeSKFont fontSize font
+                canvas.DrawText(text, position.X, position.Y, SKTextAlign.Left, skFont, skPaint)
 
     let renderElements (elements: Element list) (canvas: SKCanvas) =
         for element in elements do
