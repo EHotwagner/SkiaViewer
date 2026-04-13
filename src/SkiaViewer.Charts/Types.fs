@@ -144,6 +144,8 @@ type DataGridConfig =
       RowHeight: float32
       HeaderHeight: float32
       HeaderColor: SKColor
+      HeaderTextColor: SKColor
+      TextColor: SKColor
       AlternateRowColor: SKColor option
       FontSize: float32
       HeaderFontSize: float32
@@ -254,6 +256,8 @@ module Defaults =
           RowHeight = 30.0f
           HeaderHeight = 36.0f
           HeaderColor = SKColor(0xE0uy, 0xE0uy, 0xE0uy)
+          HeaderTextColor = SKColors.Black
+          TextColor = SKColors.Black
           AlternateRowColor = Some (SKColor(0xF5uy, 0xF5uy, 0xF5uy))
           FontSize = 14.0f
           HeaderFontSize = 14.0f

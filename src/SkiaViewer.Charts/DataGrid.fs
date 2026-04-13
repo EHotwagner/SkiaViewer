@@ -81,7 +81,7 @@ module DataGrid =
                 let x = float32 i * colWidth + 4.0f
                 let y = config.HeaderHeight / 2.0f + config.HeaderFontSize / 2.0f - 2.0f
                 headerElements.Add(
-                    Scene.text col.Name x y config.HeaderFontSize (Scene.fill SKColors.Black)))
+                    Scene.text col.Name x y config.HeaderFontSize (Scene.fill config.HeaderTextColor)))
 
             let headerGroup = Scene.group None None (Seq.toList headerElements)
 
@@ -112,14 +112,14 @@ module DataGrid =
                         match cell with
                         | CellValue.TextValue s ->
                             bodyElements.Add(
-                                Scene.text s (colX + 4.0f) cellY config.FontSize (Scene.fill SKColors.Black))
+                                Scene.text s (colX + 4.0f) cellY config.FontSize (Scene.fill config.TextColor))
 
                         | CellValue.NumericValue v ->
                             let formatted = sprintf "%.2f" v
                             let roughWidth = float32 formatted.Length * config.FontSize * 0.55f
                             let xPos = colX + colWidth - roughWidth - 4.0f
                             bodyElements.Add(
-                                Scene.text formatted xPos cellY config.FontSize (Scene.fill SKColors.Black))
+                                Scene.text formatted xPos cellY config.FontSize (Scene.fill config.TextColor))
 
                         | CellValue.BoolValue b ->
                             let boxX = colX + colWidth / 2.0f - 5.0f

@@ -197,6 +197,8 @@ type DataGridConfig =
       RowHeight: float32
       HeaderHeight: float32
       HeaderColor: SKColor
+      HeaderTextColor: SKColor
+      TextColor: SKColor
       AlternateRowColor: SKColor option
       FontSize: float32
       HeaderFontSize: float32
